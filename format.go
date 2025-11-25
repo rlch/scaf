@@ -150,10 +150,6 @@ func (f *formatter) formatTest(t *Test) {
 		f.formatSetup(*t.Setup)
 	}
 
-	if t.Teardown != nil {
-		f.formatTeardown(*t.Teardown)
-	}
-
 	// Separate inputs from outputs
 	var inputs, outputs []*Statement
 
@@ -167,7 +163,7 @@ func (f *formatter) formatTest(t *Test) {
 
 	// Format inputs
 	for i, stmt := range inputs {
-		if i == 0 && (t.Setup != nil || t.Teardown != nil) {
+		if i == 0 && t.Setup != nil {
 			f.blankLine()
 		}
 
@@ -185,7 +181,7 @@ func (f *formatter) formatTest(t *Test) {
 
 	// Assertion
 	if t.Assertion != nil {
-		if len(t.Statements) > 0 || t.Setup != nil || t.Teardown != nil {
+		if len(t.Statements) > 0 || t.Setup != nil {
 			f.blankLine()
 		}
 

@@ -44,10 +44,10 @@ type Group struct {
 }
 
 // Test defines a single test case with inputs, expected outputs, and optional assertions.
+// Tests run in a transaction that rolls back after execution, so no teardown is needed.
 type Test struct {
 	Name       string       `parser:"'test' @String '{'"`
 	Setup      *string      `parser:"('setup' @RawString)?"`
-	Teardown   *string      `parser:"('teardown' @RawString)?"`
 	Statements []*Statement `parser:"@@*"`
 	Assertion  *Assertion   `parser:"('assert' @@)?"`
 	Close      string       `parser:"'}'"`

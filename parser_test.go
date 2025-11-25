@@ -318,37 +318,6 @@ func TestParse(t *testing.T) {
 				},
 			},
 		},
-		{
-			name: "test teardown",
-			input: `
-				query Q ` + "`Q`" + `
-				Q {
-					test "t" {
-						setup ` + "`TEST SETUP`" + `
-						teardown ` + "`TEST TEARDOWN`" + `
-						$id: 1
-					}
-				}
-			`,
-			expected: &scaf.Suite{
-				Queries: []*scaf.Query{{Name: "Q", Body: "Q"}},
-				Scopes: []*scaf.QueryScope{
-					{
-						QueryName: "Q",
-						Items: []*scaf.TestOrGroup{
-							{
-								Test: &scaf.Test{
-									Name:       "t",
-									Setup:      ptr("TEST SETUP"),
-									Teardown:   ptr("TEST TEARDOWN"),
-									Statements: []*scaf.Statement{{Key: "$id", Value: &scaf.Value{Number: ptr(1.0)}}},
-								},
-							},
-						},
-					},
-				},
-			},
-		},
 	}
 
 	for _, tt := range tests {
