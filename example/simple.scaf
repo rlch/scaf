@@ -40,6 +40,20 @@ GetUser {
 		u.name: null
 		u.email: null
 	}
+
+	group "expected failures" {
+		test "wrong name" {
+			$userId: 1
+
+			u.name: "Wrong"
+		}
+
+		test "wrong age type" {
+			$userId: 1
+
+			u.age: "thirty"
+		}
+	}
 }
 
 CountUsers {
@@ -47,7 +61,7 @@ CountUsers {
 		count: 2
 	}
 
-	test "test isolation - created user should rollback" {
+	test "test isolation - temp user rolls back" {
 		setup `
 		CREATE (:User {id: 999, name: "Temp"})
 		`
@@ -55,7 +69,7 @@ CountUsers {
 		count: 3
 	}
 
-	test "still only 2 users after rollback" {
+	test "still 2 after rollback" {
 		count: 2
 	}
 }
