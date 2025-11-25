@@ -13,7 +13,6 @@ MATCH (n) DETACH DELETE n
 CREATE (alice:User {id: 1, name: "Alice", email: "alice@example.com", age: 30})
 CREATE (bob:User {id: 2, name: "Bob", email: "bob@example.com", age: 25})
 `
-
 teardown `
 MATCH (n) DETACH DELETE n
 `
@@ -45,7 +44,7 @@ GetUser {
 		test "wrong name" {
 			$userId: 1
 
-			u.name: "Wrong"
+			u.name: "Bruh"
 		}
 
 		test "wrong age type" {
@@ -65,7 +64,6 @@ CountUsers {
 		setup `
 		CREATE (:User {id: 999, name: "Temp"})
 		`
-
 		count: 3
 	}
 
