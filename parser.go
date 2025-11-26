@@ -12,7 +12,7 @@ var dslLexer = lexer.MustSimple([]lexer.SimpleRule{
 	{Name: "Float", Pattern: `[-+]?\d+\.\d+`},
 	{Name: "Int", Pattern: `[-+]?\d+`},
 	{Name: "Ident", Pattern: `\$?[a-zA-Z_][a-zA-Z0-9_]*`},
-	{Name: "Punct", Pattern: `[-!()+/*,>{}:.\[\]]`},
+	{Name: "Punct", Pattern: `[-!()+/*,><>={}:.\[\];]`},
 	{Name: "Whitespace", Pattern: `[ \t\n\r]+`},
 })
 

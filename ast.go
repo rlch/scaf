@@ -9,10 +9,21 @@ import (
 
 // Suite represents a complete test file with queries, setup, teardown, and test scopes.
 type Suite struct {
+	Imports  []*Import     `parser:"@@*"`
 	Queries  []*Query      `parser:"@@*"`
-	Setup    *string       `parser:"('setup' @RawString)?"`
+	Setup    *SetupClause  `parser:"('setup' @@)?"`
 	Teardown *string       `parser:"('teardown' @RawString)?"`
 	Scopes   []*QueryScope `parser:"@@*"`
+}
+
+// Import represents a module import statement.
+// Examples:
+//
+//	import "../../setup/lesson_plan_db"
+//	import fixtures "../shared/fixtures"
+type Import struct {
+	Alias *string `parser:"'import' @Ident?"`
+	Path  string  `parser:"@String"`
 }
 
 // Query defines a named database query.
@@ -21,10 +32,38 @@ type Query struct {
 	Body string `parser:"@RawString"`
 }
 
+// SetupClause represents either an inline setup query or a named setup reference.
+// Examples:
+//
+//	setup `CREATE (:User)`                              // inline
+//	setup lesson_plan_db.SetupLessonPlanDB()            // named, no params
+//	setup fixtures.CreatePosts($n: 10, $authorId: 1)    // named with params
+type SetupClause struct {
+	Inline *string     `parser:"@RawString"`
+	Named  *NamedSetup `parser:"| @@"`
+}
+
+// NamedSetup references a setup defined elsewhere (local or imported).
+// Examples:
+//
+//	SetupLessonPlanDB()
+//	module.SetupName($param: value)
+type NamedSetup struct {
+	Module *string       `parser:"(@Ident '.')?"`
+	Name   string        `parser:"@Ident '('"`
+	Params []*SetupParam `parser:"@@? (',' @@)* ')'"`
+}
+
+// SetupParam is a parameter passed to a named setup.
+type SetupParam struct {
+	Name  string `parser:"@Ident ':'"`
+	Value *Value `parser:"@@"`
+}
+
 // QueryScope groups tests that target a specific query.
 type QueryScope struct {
 	QueryName string         `parser:"@Ident '{'"`
-	Setup     *string        `parser:"('setup' @RawString)?"`
+	Setup     *SetupClause   `parser:"('setup' @@)?"`
 	Teardown  *string        `parser:"('teardown' @RawString)?"`
 	Items     []*TestOrGroup `parser:"@@* '}'"`
 }
@@ -38,7 +77,7 @@ type TestOrGroup struct {
 // Group organizes related tests with optional shared setup and teardown.
 type Group struct {
 	Name     string         `parser:"'group' @String '{'"`
-	Setup    *string        `parser:"('setup' @RawString)?"`
+	Setup    *SetupClause   `parser:"('setup' @@)?"`
 	Teardown *string        `parser:"('teardown' @RawString)?"`
 	Items    []*TestOrGroup `parser:"@@* '}'"`
 }
@@ -47,19 +86,26 @@ type Group struct {
 // Tests run in a transaction that rolls back after execution, so no teardown is needed.
 type Test struct {
 	Name       string       `parser:"'test' @String '{'"`
-	Setup      *string      `parser:"('setup' @RawString)?"`
+	Setup      *SetupClause `parser:"('setup' @@)?"`
 	Statements []*Statement `parser:"@@*"`
 	Assertion  *Assertion   `parser:"('assert' @@)?"`
 	Close      string       `parser:"'}'"`
 }
 
-// Statement represents a key-value pair for inputs ($var) or expected outputs.
+// Statement represents a key-value pair for inputs ($var), expected outputs, or computed fields.
+// Examples:
+//
+//	$userId: 1                                    // input parameter
+//	u.name: "Alice"                               // expected output (equality)
+//	u: { cronLastExecutedAt: u.createdAt + duration("24h") }  // computed field for mocks
 type Statement struct {
 	Key   string `parser:"@Ident (@'.' @Ident)*"`
 	Value *Value `parser:"':' @@"`
 }
 
 // Assertion defines a post-execution query and its expected results.
+// This is the legacy assertion format using equality checks.
+// TODO: Add support for expr-based assertions (assert <expr>;)
 type Assertion struct {
 	Query        string       `parser:"@RawString '{'"`
 	Expectations []*Statement `parser:"@@* '}'"`

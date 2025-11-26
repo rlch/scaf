@@ -7,6 +7,11 @@ import (
 	"github.com/rlch/scaf"
 )
 
+// inlineSetup creates a SetupClause with an inline query.
+func inlineSetup(body string) *scaf.SetupClause {
+	return &scaf.SetupClause{Inline: ptr(body)}
+}
+
 func TestFormat(t *testing.T) {
 	t.Parallel()
 
@@ -41,7 +46,7 @@ query B ` + "`B`" + `
 			name: "query with global setup",
 			suite: &scaf.Suite{
 				Queries: []*scaf.Query{{Name: "Q", Body: "Q"}},
-				Setup:   ptr("CREATE (:User)"),
+				Setup: inlineSetup("CREATE (:User)"),
 			},
 			expected: `query Q ` + "`Q`" + `
 
@@ -76,7 +81,7 @@ GetUser {
 				Scopes: []*scaf.QueryScope{
 					{
 						QueryName: "Q",
-						Setup:     ptr("SCOPE SETUP"),
+						Setup:     inlineSetup("SCOPE SETUP"),
 						Items: []*scaf.TestOrGroup{
 							{Test: &scaf.Test{Name: "t"}},
 						},
@@ -140,7 +145,7 @@ Q {
 							{
 								Test: &scaf.Test{
 									Name:  "t",
-									Setup: ptr("TEST SETUP"),
+									Setup: inlineSetup("TEST SETUP"),
 									Statements: []*scaf.Statement{
 										{Key: "$id", Value: &scaf.Value{Number: ptr(1.0)}},
 									},
@@ -245,7 +250,7 @@ Q {
 							{
 								Group: &scaf.Group{
 									Name:  "users",
-									Setup: ptr("GROUP SETUP"),
+									Setup: inlineSetup("GROUP SETUP"),
 									Items: []*scaf.TestOrGroup{
 										{Test: &scaf.Test{Name: "a"}},
 									},
@@ -364,7 +369,7 @@ Q {
 		{
 			name: "scope only with global setup",
 			suite: &scaf.Suite{
-				Setup: ptr("GLOBAL SETUP"),
+				Setup: inlineSetup("GLOBAL SETUP"),
 				Scopes: []*scaf.QueryScope{
 					{
 						QueryName: "Q",
@@ -609,21 +614,21 @@ func TestFormatPreservesSemantics(t *testing.T) {
 		Queries: []*scaf.Query{
 			{Name: "GetUser", Body: "MATCH (u:User {id: $id}) RETURN u"},
 		},
-		Setup: ptr("CREATE (:User {id: 1, name: \"Alice\"})"),
+		Setup: inlineSetup("CREATE (:User {id: 1, name: \"Alice\"})"),
 		Scopes: []*scaf.QueryScope{
 			{
 				QueryName: "GetUser",
-				Setup:     ptr("MATCH (u:User) SET u.active = true"),
+				Setup:     inlineSetup("MATCH (u:User) SET u.active = true"),
 				Items: []*scaf.TestOrGroup{
 					{
 						Group: &scaf.Group{
 							Name:  "active users",
-							Setup: ptr("CREATE (:Session)"),
+							Setup: inlineSetup("CREATE (:Session)"),
 							Items: []*scaf.TestOrGroup{
 								{
 									Test: &scaf.Test{
 										Name:  "finds user",
-										Setup: ptr("SET u.verified = true"),
+										Setup: inlineSetup("SET u.verified = true"),
 										Statements: []*scaf.Statement{
 											{Key: "$id", Value: &scaf.Value{Number: ptr(1.0)}},
 											{Key: "u.name", Value: &scaf.Value{Str: ptr("Alice")}},
@@ -885,7 +890,7 @@ func TestFormatSetupOnly(t *testing.T) {
 	t.Parallel()
 
 	suite := &scaf.Suite{
-		Setup: ptr("CREATE (:Node)"),
+		Setup: inlineSetup("CREATE (:Node)"),
 	}
 
 	expected := "setup `CREATE (:Node)`\n"

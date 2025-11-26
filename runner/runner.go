@@ -96,7 +96,7 @@ func (r *Runner) Run(ctx context.Context, suite *scaf.Suite, suitePath string) (
 
 	// Execute suite setup
 	if suite.Setup != nil {
-		if err := r.executeQuery(ctx, r.dialect, *suite.Setup, nil); err != nil {
+		if err := r.executeSetup(ctx, r.dialect, suite.Setup); err != nil {
 			return result, fmt.Errorf("suite setup: %w", err)
 		}
 	}
@@ -145,7 +145,7 @@ func (r *Runner) runQueryScope(
 
 	// Execute scope setup
 	if scope.Setup != nil {
-		if err := r.executeQuery(ctx, r.dialect, *scope.Setup, nil); err != nil {
+		if err := r.executeSetup(ctx, r.dialect, scope.Setup); err != nil {
 			return fmt.Errorf("scope %s setup: %w", scope.QueryName, err)
 		}
 	}
@@ -198,7 +198,7 @@ func (r *Runner) runGroup(
 
 	// Execute group setup
 	if group.Setup != nil {
-		if err := r.executeQuery(ctx, r.dialect, *group.Setup, nil); err != nil {
+		if err := r.executeSetup(ctx, r.dialect, group.Setup); err != nil {
 			return fmt.Errorf("group %s setup: %w", group.Name, err)
 		}
 	}
@@ -308,7 +308,7 @@ func (r *Runner) runTestDirect(
 ) error {
 	// Execute test setup (within transaction if available)
 	if test.Setup != nil {
-		if err := r.executeQuery(ctx, exec, *test.Setup, nil); err != nil {
+		if err := r.executeSetup(ctx, exec, test.Setup); err != nil {
 			return r.emitError(ctx, path, suitePath, start, fmt.Errorf("test setup: %w", err), handler, result)
 		}
 	}
@@ -411,6 +411,26 @@ func (r *Runner) executeQuery(ctx context.Context, exec executor, query string, 
 	_, err := exec.Execute(ctx, query, params)
 
 	return err
+}
+
+// executeSetup executes a setup clause - either inline or named.
+// Named setups with module references are not yet implemented.
+func (r *Runner) executeSetup(ctx context.Context, exec executor, setup *scaf.SetupClause) error {
+	if setup == nil {
+		return nil
+	}
+
+	if setup.Inline != nil {
+		return r.executeQuery(ctx, exec, *setup.Inline, nil)
+	}
+
+	if setup.Named != nil {
+		// TODO: Implement named setup resolution
+		// For now, we'd need to look up the setup in the current suite or imported modules
+		return fmt.Errorf("named setup references not yet implemented: %s", setup.Named.Name)
+	}
+
+	return nil
 }
 
 func (r *Runner) emitError(

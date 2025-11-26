@@ -54,7 +54,7 @@ func TestRunner_GlobalSetup(t *testing.T) {
 
 	setup := "CREATE (n:Node)"
 
-	_, err := r.Run(context.Background(), &scaf.Suite{Setup: &setup}, "test.scaf")
+	_, err := r.Run(context.Background(), &scaf.Suite{Setup: &scaf.SetupClause{Inline: &setup}}, "test.scaf")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -70,7 +70,7 @@ func TestRunner_SetupError(t *testing.T) {
 
 	setup := "INVALID"
 
-	_, err := r.Run(context.Background(), &scaf.Suite{Setup: &setup}, "test.scaf")
+	_, err := r.Run(context.Background(), &scaf.Suite{Setup: &scaf.SetupClause{Inline: &setup}}, "test.scaf")
 
 	if !errors.Is(err, errTestSetupFailed) {
 		t.Errorf("got %v, want errTestSetupFailed", err)
@@ -83,6 +83,7 @@ func TestRunner_SimpleTest(t *testing.T) {
 	r := New(WithDialect(d), WithHandler(h))
 
 	suite := &scaf.Suite{
+		Queries: []*scaf.Query{{Name: "GetUser", Body: "MATCH (u:User) RETURN u"}},
 		Scopes: []*scaf.QueryScope{{
 			QueryName: "GetUser",
 			Items:     []*scaf.TestOrGroup{{Test: &scaf.Test{Name: "finds user"}}},
@@ -119,6 +120,7 @@ func TestRunner_NestedGroups(t *testing.T) {
 	r := New(WithDialect(&mockDialect{}))
 
 	suite := &scaf.Suite{
+		Queries: []*scaf.Query{{Name: "Query", Body: "Q"}},
 		Scopes: []*scaf.QueryScope{{
 			QueryName: "Query",
 			Items: []*scaf.TestOrGroup{{
@@ -162,10 +164,11 @@ func TestRunner_FailFast(t *testing.T) {
 
 	setup := "SETUP"
 	suite := &scaf.Suite{
+		Queries: []*scaf.Query{{Name: "Query", Body: "Q"}},
 		Scopes: []*scaf.QueryScope{{
 			QueryName: "Query",
 			Items: []*scaf.TestOrGroup{
-				{Test: &scaf.Test{Name: "test1", Setup: &setup}},
+				{Test: &scaf.Test{Name: "test1", Setup: &scaf.SetupClause{Inline: &setup}}},
 				{Test: &scaf.Test{Name: "test2"}},
 				{Test: &scaf.Test{Name: "test3"}},
 			},
@@ -186,13 +189,14 @@ func TestRunner_ScopeAndGroupSetup(t *testing.T) {
 	scopeSetup := "SCOPE"
 	groupSetup := "GROUP"
 	suite := &scaf.Suite{
+		Queries: []*scaf.Query{{Name: "Query", Body: "Q"}},
 		Scopes: []*scaf.QueryScope{{
 			QueryName: "Query",
-			Setup:     &scopeSetup,
+			Setup: &scaf.SetupClause{Inline: &scopeSetup},
 			Items: []*scaf.TestOrGroup{{
 				Group: &scaf.Group{
 					Name:  "group",
-					Setup: &groupSetup,
+					Setup: &scaf.SetupClause{Inline: &groupSetup},
 					Items: []*scaf.TestOrGroup{{Test: &scaf.Test{Name: "test"}}},
 				},
 			}},

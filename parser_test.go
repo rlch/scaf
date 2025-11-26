@@ -69,7 +69,7 @@ func TestParse(t *testing.T) {
 			`,
 			expected: &scaf.Suite{
 				Queries: []*scaf.Query{{Name: "Q", Body: "Q"}},
-				Setup:   ptr("CREATE (:User)"),
+				Setup: &scaf.SetupClause{Inline: ptr("CREATE (:User)")},
 				Scopes: []*scaf.QueryScope{
 					{
 						QueryName: "Q",
@@ -92,7 +92,7 @@ func TestParse(t *testing.T) {
 				Scopes: []*scaf.QueryScope{
 					{
 						QueryName: "Q",
-						Setup:     ptr("SCOPE SETUP"),
+						Setup: &scaf.SetupClause{Inline: ptr("SCOPE SETUP")},
 						Items:     []*scaf.TestOrGroup{{Test: &scaf.Test{Name: "t"}}},
 					},
 				},
@@ -114,7 +114,7 @@ func TestParse(t *testing.T) {
 					{
 						QueryName: "Q",
 						Items: []*scaf.TestOrGroup{
-							{Test: &scaf.Test{Name: "t", Setup: ptr("TEST SETUP")}},
+							{Test: &scaf.Test{Name: "t", Setup: &scaf.SetupClause{Inline: ptr("TEST SETUP")}}},
 						},
 					},
 				},
@@ -258,7 +258,7 @@ func TestParse(t *testing.T) {
 			`,
 			expected: &scaf.Suite{
 				Queries:  []*scaf.Query{{Name: "Q", Body: "Q"}},
-				Setup:    ptr("CREATE (:User)"),
+				Setup: &scaf.SetupClause{Inline: ptr("CREATE (:User)")},
 				Teardown: ptr("MATCH (u:User) DELETE u"),
 				Scopes: []*scaf.QueryScope{
 					{QueryName: "Q", Items: []*scaf.TestOrGroup{{Test: &scaf.Test{Name: "t"}}}},
@@ -280,7 +280,7 @@ func TestParse(t *testing.T) {
 				Scopes: []*scaf.QueryScope{
 					{
 						QueryName: "Q",
-						Setup:     ptr("SCOPE SETUP"),
+						Setup: &scaf.SetupClause{Inline: ptr("SCOPE SETUP")},
 						Teardown:  ptr("SCOPE TEARDOWN"),
 						Items:     []*scaf.TestOrGroup{{Test: &scaf.Test{Name: "t"}}},
 					},
@@ -308,7 +308,7 @@ func TestParse(t *testing.T) {
 							{
 								Group: &scaf.Group{
 									Name:     "g",
-									Setup:    ptr("GROUP SETUP"),
+									Setup: &scaf.SetupClause{Inline: ptr("GROUP SETUP")},
 									Teardown: ptr("GROUP TEARDOWN"),
 									Items:    []*scaf.TestOrGroup{{Test: &scaf.Test{Name: "t"}}},
 								},
@@ -331,6 +331,163 @@ func TestParse(t *testing.T) {
 
 			if diff := cmp.Diff(tt.expected, got); diff != "" {
 				t.Errorf("Parse() mismatch (-want +got):\n%s", diff)
+			}
+		})
+	}
+}
+
+func TestParseImports(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		input    string
+		expected []*scaf.Import
+	}{
+		{
+			name: "simple import",
+			input: `
+				import "../../setup/db"
+				query Q ` + "`Q`" + `
+			`,
+			expected: []*scaf.Import{
+				{Path: "../../setup/db"},
+			},
+		},
+		{
+			name: "import with alias",
+			input: `
+				import fixtures "../shared/fixtures"
+				query Q ` + "`Q`" + `
+			`,
+			expected: []*scaf.Import{
+				{Alias: ptr("fixtures"), Path: "../shared/fixtures"},
+			},
+		},
+		{
+			name: "multiple imports",
+			input: `
+				import "../../setup/db"
+				import fixtures "../shared/fixtures"
+				import utils "./utils"
+				query Q ` + "`Q`" + `
+			`,
+			expected: []*scaf.Import{
+				{Path: "../../setup/db"},
+				{Alias: ptr("fixtures"), Path: "../shared/fixtures"},
+				{Alias: ptr("utils"), Path: "./utils"},
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			got, err := scaf.Parse([]byte(tt.input))
+			if err != nil {
+				t.Fatalf("Parse() error: %v", err)
+			}
+
+			if diff := cmp.Diff(tt.expected, got.Imports); diff != "" {
+				t.Errorf("Parse() imports mismatch (-want +got):\n%s", diff)
+			}
+		})
+	}
+}
+
+func TestParseNamedSetup(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		input    string
+		expected *scaf.SetupClause
+	}{
+		{
+			name: "named setup no params",
+			input: `
+				query Q ` + "`Q`" + `
+				Q {
+					setup SetupDB()
+					test "t" {}
+				}
+			`,
+			expected: &scaf.SetupClause{
+				Named: &scaf.NamedSetup{
+					Name: "SetupDB",
+				},
+			},
+		},
+		{
+			name: "named setup with module",
+			input: `
+				query Q ` + "`Q`" + `
+				Q {
+					setup fixtures.SetupDB()
+					test "t" {}
+				}
+			`,
+			expected: &scaf.SetupClause{
+				Named: &scaf.NamedSetup{
+					Module: ptr("fixtures"),
+					Name:   "SetupDB",
+				},
+			},
+		},
+		{
+			name: "named setup with params",
+			input: `
+				query Q ` + "`Q`" + `
+				Q {
+					setup CreatePosts($n: 10, $title: "Post")
+					test "t" {}
+				}
+			`,
+			expected: &scaf.SetupClause{
+				Named: &scaf.NamedSetup{
+					Name: "CreatePosts",
+					Params: []*scaf.SetupParam{
+						{Name: "$n", Value: &scaf.Value{Number: ptr(10.0)}},
+						{Name: "$title", Value: &scaf.Value{Str: ptr("Post")}},
+					},
+				},
+			},
+		},
+		{
+			name: "named setup with module and params",
+			input: `
+				query Q ` + "`Q`" + `
+				Q {
+					setup fixtures.CreatePosts($n: 10, $authorId: 1)
+					test "t" {}
+				}
+			`,
+			expected: &scaf.SetupClause{
+				Named: &scaf.NamedSetup{
+					Module: ptr("fixtures"),
+					Name:   "CreatePosts",
+					Params: []*scaf.SetupParam{
+						{Name: "$n", Value: &scaf.Value{Number: ptr(10.0)}},
+						{Name: "$authorId", Value: &scaf.Value{Number: ptr(1.0)}},
+					},
+				},
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			got, err := scaf.Parse([]byte(tt.input))
+			if err != nil {
+				t.Fatalf("Parse() error: %v", err)
+			}
+
+			gotSetup := got.Scopes[0].Setup
+			if diff := cmp.Diff(tt.expected, gotSetup); diff != "" {
+				t.Errorf("Parse() setup mismatch (-want +got):\n%s", diff)
 			}
 		})
 	}

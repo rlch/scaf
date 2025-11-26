@@ -56,7 +56,7 @@ func (f *formatter) formatSuite(s *Suite) {
 			f.blankLine()
 		}
 
-		f.formatSetup(*s.Setup)
+		f.formatSetupClause(s.Setup)
 	}
 
 	// Global teardown
@@ -78,8 +78,37 @@ func (f *formatter) formatQuery(q *Query) {
 	f.writeLine("query " + q.Name + " " + f.rawString(q.Body))
 }
 
-func (f *formatter) formatSetup(body string) {
-	f.writeLine("setup " + f.rawString(body))
+func (f *formatter) formatSetupClause(s *SetupClause) {
+	if s.Inline != nil {
+		f.writeLine("setup " + f.rawString(*s.Inline))
+	} else if s.Named != nil {
+		f.formatNamedSetup(s.Named)
+	}
+}
+
+func (f *formatter) formatNamedSetup(ns *NamedSetup) {
+	var b strings.Builder
+	b.WriteString("setup ")
+	
+	if ns.Module != nil {
+		b.WriteString(*ns.Module)
+		b.WriteString(".")
+	}
+	
+	b.WriteString(ns.Name)
+	b.WriteString("(")
+	
+	for i, p := range ns.Params {
+		if i > 0 {
+			b.WriteString(", ")
+		}
+		b.WriteString(p.Name)
+		b.WriteString(": ")
+		b.WriteString(f.formatValue(p.Value))
+	}
+	
+	b.WriteString(")")
+	f.writeLine(b.String())
 }
 
 func (f *formatter) formatTeardown(body string) {
@@ -91,7 +120,7 @@ func (f *formatter) formatScope(s *QueryScope) {
 	f.indent++
 
 	if s.Setup != nil {
-		f.formatSetup(*s.Setup)
+		f.formatSetupClause(s.Setup)
 	}
 
 	if s.Teardown != nil {
@@ -129,7 +158,7 @@ func (f *formatter) formatGroup(g *Group) {
 	f.indent++
 
 	if g.Setup != nil {
-		f.formatSetup(*g.Setup)
+		f.formatSetupClause(g.Setup)
 	}
 
 	if g.Teardown != nil {
@@ -147,7 +176,7 @@ func (f *formatter) formatTest(t *Test) {
 	f.indent++
 
 	if t.Setup != nil {
-		f.formatSetup(*t.Setup)
+		f.formatSetupClause(t.Setup)
 	}
 
 	// Separate inputs from outputs
