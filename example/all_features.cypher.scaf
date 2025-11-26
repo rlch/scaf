@@ -1,16 +1,13 @@
 // Comprehensive scaf example - all DSL features
-
 // ============================================================================
 // Imports - reference setups and fixtures from other files
 // ============================================================================
-
 // Import shared fixtures from the local shared directory
 import fixtures "./shared/fixtures"
 
 // ============================================================================
 // Query Definitions
 // ============================================================================
-
 query GetUser `
 MATCH (u:User {id: $userId})
 RETURN u.name, u.email, u.age, u.verified
@@ -26,35 +23,31 @@ MATCH (n)
 RETURN count(n) as total
 `
 
-// ============================================================================
-// Global Setup & Teardown
-// ============================================================================
-
 setup `
 MATCH (n) DETACH DELETE n
 CREATE (alice:User {id: 1, name: "Alice", email: "alice@example.com", age: 30, verified: true})
 CREATE (bob:User {id: 2, name: "Bob", email: "bob@example.com", age: 25, verified: false})
 CREATE (charlie:User {id: 3, name: "Charlie", email: "charlie@example.com", age: null, verified: true})
 `
-
 teardown `
 MATCH (n) DETACH DELETE n
 `
 
 // ============================================================================
+// Global Setup & Teardown
+// ============================================================================
+// ============================================================================
 // Test Scopes
 // ============================================================================
-
 GetUser {
-	// Scope-level setup
 	setup `
 	CREATE (p:Post {id: 101, authorId: 1, title: "Alice's Post"})
 	`
-
 	teardown `
 	MATCH (p:Post) DELETE p
 	`
 
+	// Scope-level setup
 	group "basic lookups" {
 		test "finds Alice by id" {
 			$userId: 1
@@ -101,14 +94,14 @@ GetUser {
 		test "email format validation" {
 			$userId: 1
 
-			// String operators: contains, startsWith, endsWith
-			// String functions: hasPrefix(), hasSuffix()
 			assert {
 				u.email contains "@";
 				len(u.email) > 5
 			}
 		}
 
+		// String operators: contains, startsWith, endsWith
+		// String functions: hasPrefix(), hasSuffix()
 		test "combined output check and assertion" {
 			$userId: 2
 

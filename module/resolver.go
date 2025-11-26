@@ -32,8 +32,9 @@ func (r *Resolver) Resolve(rootPath string) (*ResolvedContext, error) {
 	visiting := make(map[string]bool)
 	visited := make(map[string]bool)
 
-	// Resolve all imports starting from root
-	if err := r.resolveImports(root, ctx, visiting, visited, []string{root.Path}); err != nil {
+	// Resolve all imports starting from root.
+	err = r.resolveImports(root, ctx, visiting, visited, []string{root.Path})
+	if err != nil {
 		return nil, err
 	}
 
@@ -41,7 +42,7 @@ func (r *Resolver) Resolve(rootPath string) (*ResolvedContext, error) {
 }
 
 // resolveImports recursively loads and resolves imports for a module.
-func (r *Resolver) resolveImports(
+func (r *Resolver) resolveImports( //nolint:funcorder
 	mod *Module,
 	ctx *ResolvedContext,
 	visiting, visited map[string]bool,
@@ -91,7 +92,9 @@ func (r *Resolver) resolveImports(
 		// Recursively resolve if not already visited
 		if !visited[imported.Path] {
 			newPath := append(path, imported.Path) //nolint:gocritic // intentional append to new slice
-			if err := r.resolveImports(imported, ctx, visiting, visited, newPath); err != nil {
+
+			err := r.resolveImports(imported, ctx, visiting, visited, newPath)
+			if err != nil {
 				return err
 			}
 		}
@@ -118,7 +121,8 @@ func (r *Resolver) ResolveFromSuite(path string, suite *scaf.Suite) (*ResolvedCo
 	visiting := make(map[string]bool)
 	visited := make(map[string]bool)
 
-	if err := r.resolveImports(root, ctx, visiting, visited, []string{root.Path}); err != nil {
+	err := r.resolveImports(root, ctx, visiting, visited, []string{root.Path})
+	if err != nil {
 		return nil, err
 	}
 

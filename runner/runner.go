@@ -14,6 +14,13 @@ import (
 	"github.com/rlch/scaf/module"
 )
 
+var (
+	// ErrFieldNotFound is returned when a field reference cannot be resolved.
+	ErrFieldNotFound = errors.New("field not found in scope")
+	// ErrFieldNotMap is returned when attempting to access a field on a non-map value.
+	ErrFieldNotMap = errors.New("cannot access field on non-map value")
+)
+
 // Runner executes scaf test suites.
 type Runner struct {
 	dialect  scaf.Dialect
@@ -135,7 +142,8 @@ func (r *Runner) Run(ctx context.Context, suite *scaf.Suite, suitePath string) (
 
 	// Execute suite setup
 	if suite.Setup != nil {
-		if err := r.executeSetup(ctx, r.dialect, suite.Setup); err != nil {
+		err := r.executeSetup(ctx, r.dialect, suite.Setup)
+		if err != nil {
 			return result, fmt.Errorf("suite setup: %w", err)
 		}
 	}
@@ -159,7 +167,8 @@ func (r *Runner) Run(ctx context.Context, suite *scaf.Suite, suitePath string) (
 
 	// Execute suite teardown
 	if suite.Teardown != nil {
-		if err := r.executeQuery(ctx, r.dialect, *suite.Teardown, nil); err != nil {
+		err := r.executeQuery(ctx, r.dialect, *suite.Teardown, nil)
+		if err != nil {
 			return result, fmt.Errorf("suite teardown: %w", err)
 		}
 	}
@@ -184,7 +193,8 @@ func (r *Runner) runQueryScope(
 
 	// Execute scope setup
 	if scope.Setup != nil {
-		if err := r.executeSetup(ctx, r.dialect, scope.Setup); err != nil {
+		err := r.executeSetup(ctx, r.dialect, scope.Setup)
+		if err != nil {
 			return fmt.Errorf("scope %s setup: %w", scope.QueryName, err)
 		}
 	}
@@ -214,7 +224,8 @@ func (r *Runner) runQueryScope(
 
 	// Execute scope teardown
 	if scope.Teardown != nil {
-		if err := r.executeQuery(ctx, r.dialect, *scope.Teardown, nil); err != nil {
+		err := r.executeQuery(ctx, r.dialect, *scope.Teardown, nil)
+		if err != nil {
 			return fmt.Errorf("scope %s teardown: %w", scope.QueryName, err)
 		}
 	}
@@ -238,7 +249,8 @@ func (r *Runner) runGroup(
 
 	// Execute group setup
 	if group.Setup != nil {
-		if err := r.executeSetup(ctx, r.dialect, group.Setup); err != nil {
+		err := r.executeSetup(ctx, r.dialect, group.Setup)
+		if err != nil {
 			return fmt.Errorf("group %s setup: %w", group.Name, err)
 		}
 	}
@@ -266,7 +278,8 @@ func (r *Runner) runGroup(
 
 	// Execute group teardown
 	if group.Teardown != nil {
-		if err := r.executeQuery(ctx, r.dialect, *group.Teardown, nil); err != nil {
+		err := r.executeQuery(ctx, r.dialect, *group.Teardown, nil)
+		if err != nil {
 			return fmt.Errorf("group %s teardown: %w", group.Name, err)
 		}
 	}
@@ -304,7 +317,7 @@ func (r *Runner) runTest(
 
 	// Artificial lag for TUI testing
 	if r.lag {
-		time.Sleep(time.Duration(500+rand.Intn(1000)) * time.Millisecond)
+		time.Sleep(time.Duration(500+rand.Intn(1000)) * time.Millisecond) //nolint:gosec // G404: weak random is fine for artificial lag
 	}
 
 	// Try to run test in a transaction for isolation
@@ -356,7 +369,8 @@ func (r *Runner) runTestDirect(
 ) error {
 	// Execute test setup (within transaction if available)
 	if test.Setup != nil {
-		if err := r.executeSetup(ctx, exec, test.Setup); err != nil {
+		err := r.executeSetup(ctx, exec, test.Setup)
+		if err != nil {
 			return r.emitError(ctx, path, suitePath, start, fmt.Errorf("test setup: %w", err), handler, result)
 		}
 	}
@@ -414,7 +428,8 @@ func (r *Runner) runTestDirect(
 
 	// Evaluate assert blocks
 	for _, assert := range test.Asserts {
-		if err := r.evaluateAssert(ctx, exec, assert, actual, queries, path, suitePath, start, handler, result); err != nil {
+		err := r.evaluateAssert(ctx, exec, assert, actual, queries, path, suitePath, start, handler, result)
+		if err != nil {
 			return err
 		}
 	}
@@ -469,7 +484,7 @@ func (r *Runner) executeQuery(ctx context.Context, exec executor, query string, 
 	return err
 }
 
-// executeSetup executes a setup clause - either inline or named.
+// executeSetup executes a setup clause - inline, named, or block.
 func (r *Runner) executeSetup(ctx context.Context, exec executor, setup *scaf.SetupClause) error {
 	if setup == nil {
 		return nil
@@ -481,6 +496,27 @@ func (r *Runner) executeSetup(ctx context.Context, exec executor, setup *scaf.Se
 
 	if setup.Named != nil {
 		return r.executeNamedSetup(ctx, exec, setup.Named)
+	}
+
+	// Block setup - execute each item in order
+	for _, item := range setup.Block {
+		err := r.executeSetupItem(ctx, exec, item)
+		if err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+// executeSetupItem executes a single setup item (inline or named).
+func (r *Runner) executeSetupItem(ctx context.Context, exec executor, item *scaf.SetupItem) error {
+	if item.Inline != nil {
+		return r.executeQuery(ctx, exec, *item.Inline, nil)
+	}
+
+	if item.Named != nil {
+		return r.executeNamedSetup(ctx, exec, item.Named)
 	}
 
 	return nil
@@ -507,6 +543,7 @@ func (r *Runner) executeNamedSetup(ctx context.Context, exec executor, named *sc
 
 	// Build params from the setup call
 	params := make(map[string]any)
+
 	for _, p := range named.Params {
 		key := p.Name
 		// Strip $ prefix if present
@@ -576,6 +613,7 @@ func (r *Runner) evaluateAssert(
 		if err != nil {
 			return r.emitError(ctx, path, suitePath, start, fmt.Errorf("assert query: %w", err), handler, result)
 		}
+
 		env = assertResult
 	}
 
@@ -617,6 +655,7 @@ func (r *Runner) runAssertQuery(
 	parentScope map[string]any,
 ) (map[string]any, error) {
 	var queryBody string
+
 	params := make(map[string]any)
 
 	switch {
@@ -642,10 +681,12 @@ func (r *Runner) runAssertQuery(
 			// Resolve field references from parent scope
 			if p.Value.IsFieldRef() {
 				fieldRef := p.Value.FieldRefString()
+
 				val, err := resolveFieldRef(fieldRef, parentScope)
 				if err != nil {
 					return nil, fmt.Errorf("param $%s: %w", key, err)
 				}
+
 				params[key] = val
 			} else {
 				params[key] = p.Value.ToGo()
@@ -677,6 +718,7 @@ func resolveFieldRef(ref string, scope map[string]any) (any, error) {
 
 	// Try nested field access (e.g., "u.id" where u is a map)
 	parts := strings.Split(ref, ".")
+
 	var current any = scope
 
 	for _, part := range parts {
@@ -684,11 +726,12 @@ func resolveFieldRef(ref string, scope map[string]any) (any, error) {
 		case map[string]any:
 			val, ok := v[part]
 			if !ok {
-				return nil, fmt.Errorf("field %q not found in scope", ref)
+				return nil, fmt.Errorf("%w: %s", ErrFieldNotFound, ref)
 			}
+
 			current = val
 		default:
-			return nil, fmt.Errorf("cannot access field %q on non-map value", part)
+			return nil, fmt.Errorf("%w: %s", ErrFieldNotMap, part)
 		}
 	}
 

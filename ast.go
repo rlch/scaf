@@ -5,16 +5,33 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+
+	"github.com/alecthomas/participle/v2/lexer"
 )
+
+// Node is the interface implemented by all AST nodes.
+// It provides access to position information for error reporting and formatting.
+type Node interface {
+	Span() Span
+}
 
 // Suite represents a complete test file with queries, setup, teardown, and test scopes.
 type Suite struct {
-	Imports  []*Import     `parser:"@@*"`
-	Queries  []*Query      `parser:"@@*"`
-	Setup    *SetupClause  `parser:"('setup' @@)?"`
-	Teardown *string       `parser:"('teardown' @RawString)?"`
-	Scopes   []*QueryScope `parser:"@@*"`
+	Pos      lexer.Position `parser:""`
+	EndPos   lexer.Position `parser:""`
+	Imports  []*Import      `parser:"@@*"`
+	Queries  []*Query       `parser:"@@*"`
+	Setup    *SetupClause   `parser:"('setup' @@)?"`
+	Teardown *string        `parser:"('teardown' @RawString)?"`
+	Scopes   []*QueryScope  `parser:"@@*"`
+
+	// Comments attached to this node (populated after parsing).
+	LeadingComments  []string `parser:""`
+	TrailingComment  string   `parser:""`
 }
+
+// Span returns the source span of this node.
+func (s *Suite) Span() Span { return Span{Start: s.Pos, End: s.EndPos} }
 
 // Import represents a module import statement.
 // Examples:
@@ -22,23 +39,55 @@ type Suite struct {
 //	import "../../setup/lesson_plan_db"
 //	import fixtures "../shared/fixtures"
 type Import struct {
-	Alias *string `parser:"'import' @Ident?"`
-	Path  string  `parser:"@String"`
+	Pos    lexer.Position `parser:""`
+	EndPos lexer.Position `parser:""`
+	Alias  *string        `parser:"'import' @Ident?"`
+	Path   string         `parser:"@String"`
+
+	// Comments attached to this node (populated after parsing).
+	LeadingComments  []string `parser:""`
+	TrailingComment  string   `parser:""`
 }
+
+// Span returns the source span of this node.
+func (i *Import) Span() Span { return Span{Start: i.Pos, End: i.EndPos} }
 
 // Query defines a named database query.
 type Query struct {
-	Name string `parser:"'query' @Ident"`
-	Body string `parser:"@RawString"`
+	Pos    lexer.Position `parser:""`
+	EndPos lexer.Position `parser:""`
+	Name   string         `parser:"'query' @Ident"`
+	Body   string         `parser:"@RawString"`
+
+	// Comments attached to this node (populated after parsing).
+	LeadingComments  []string `parser:""`
+	TrailingComment  string   `parser:""`
 }
 
-// SetupClause represents either an inline setup query or a named setup reference.
+// Span returns the source span of this node.
+func (q *Query) Span() Span { return Span{Start: q.Pos, End: q.EndPos} }
+
+// SetupClause represents a setup: inline query, named reference, or block of items.
 // Examples:
 //
 //	setup `CREATE (:User)`                              // inline
 //	setup lesson_plan_db.SetupLessonPlanDB()            // named, no params
 //	setup fixtures.CreatePosts($n: 10, $authorId: 1)    // named with params
+//	setup { `CREATE (:User)`; SetupUsers() }            // block with multiple items
 type SetupClause struct {
+	Pos    lexer.Position `parser:""`
+	EndPos lexer.Position `parser:""`
+	Inline *string        `parser:"@RawString"`
+	Named  *NamedSetup    `parser:"| @@"`
+	Block  []*SetupItem   `parser:"| '{' @@* '}'"`
+}
+
+// Span returns the source span of this node.
+func (s *SetupClause) Span() Span { return Span{Start: s.Pos, End: s.EndPos} }
+
+// SetupItem represents a single item in a setup block.
+// Can be either an inline query or a named setup call.
+type SetupItem struct {
 	Inline *string     `parser:"@RawString"`
 	Named  *NamedSetup `parser:"| @@"`
 }
@@ -49,10 +98,15 @@ type SetupClause struct {
 //	SetupLessonPlanDB()
 //	module.SetupName($param: value)
 type NamedSetup struct {
-	Module *string       `parser:"(@Ident Dot)?"`
-	Name   string        `parser:"@Ident '('"`
-	Params []*SetupParam `parser:"(@@ (Comma @@)*)? ')'"`
+	Pos    lexer.Position `parser:""`
+	EndPos lexer.Position `parser:""`
+	Module *string        `parser:"(@Ident Dot)?"`
+	Name   string         `parser:"@Ident '('"`
+	Params []*SetupParam  `parser:"(@@ (Comma @@)*)? ')'"`
 }
+
+// Span returns the source span of this node.
+func (n *NamedSetup) Span() Span { return Span{Start: n.Pos, End: n.EndPos} }
 
 // SetupParam is a parameter passed to a named setup.
 type SetupParam struct {
@@ -80,6 +134,7 @@ func (p *ParamValue) ToGo() any {
 	if p.Literal != nil {
 		return p.Literal.ToGo()
 	}
+
 	return nil // Field ref - must be resolved by runner
 }
 
@@ -93,6 +148,7 @@ func (p *ParamValue) FieldRefString() string {
 	if p.FieldRef != nil {
 		return p.FieldRef.String()
 	}
+
 	return ""
 }
 
@@ -101,43 +157,77 @@ func (p *ParamValue) String() string {
 	if p.FieldRef != nil {
 		return p.FieldRef.String()
 	}
+
 	if p.Literal != nil {
 		return p.Literal.String()
 	}
+
 	return ""
 }
 
 // QueryScope groups tests that target a specific query.
 type QueryScope struct {
+	Pos       lexer.Position `parser:""`
+	EndPos    lexer.Position `parser:""`
 	QueryName string         `parser:"@Ident '{'"`
 	Setup     *SetupClause   `parser:"('setup' @@)?"`
 	Teardown  *string        `parser:"('teardown' @RawString)?"`
 	Items     []*TestOrGroup `parser:"@@* '}'"`
+
+	// Comments attached to this node (populated after parsing).
+	LeadingComments  []string `parser:""`
+	TrailingComment  string   `parser:""`
 }
+
+// Span returns the source span of this node.
+func (q *QueryScope) Span() Span { return Span{Start: q.Pos, End: q.EndPos} }
 
 // TestOrGroup is a union type - either a Test or a Group.
 type TestOrGroup struct {
-	Test  *Test  `parser:"@@"`
-	Group *Group `parser:"| @@"`
+	Pos    lexer.Position `parser:""`
+	EndPos lexer.Position `parser:""`
+	Test   *Test          `parser:"@@"`
+	Group  *Group         `parser:"| @@"`
 }
+
+// Span returns the source span of this node.
+func (t *TestOrGroup) Span() Span { return Span{Start: t.Pos, End: t.EndPos} }
 
 // Group organizes related tests with optional shared setup and teardown.
 type Group struct {
+	Pos      lexer.Position `parser:""`
+	EndPos   lexer.Position `parser:""`
 	Name     string         `parser:"'group' @String '{'"`
 	Setup    *SetupClause   `parser:"('setup' @@)?"`
 	Teardown *string        `parser:"('teardown' @RawString)?"`
 	Items    []*TestOrGroup `parser:"@@* '}'"`
+
+	// Comments attached to this node (populated after parsing).
+	LeadingComments  []string `parser:""`
+	TrailingComment  string   `parser:""`
 }
+
+// Span returns the source span of this node.
+func (g *Group) Span() Span { return Span{Start: g.Pos, End: g.EndPos} }
 
 // Test defines a single test case with inputs, expected outputs, and optional assertions.
 // Tests run in a transaction that rolls back after execution, so no teardown is needed.
 type Test struct {
-	Name       string       `parser:"'test' @String '{'"`
-	Setup      *SetupClause `parser:"('setup' @@)?"`
-	Statements []*Statement `parser:"@@*"`
-	Asserts    []*Assert    `parser:"@@*"`
-	Close      string       `parser:"'}'"`
+	Pos        lexer.Position `parser:""`
+	EndPos     lexer.Position `parser:""`
+	Name       string         `parser:"'test' @String '{'"`
+	Setup      *SetupClause   `parser:"('setup' @@)?"`
+	Statements []*Statement   `parser:"@@*"`
+	Asserts    []*Assert      `parser:"@@*"`
+	Close      string         `parser:"'}'"`
+
+	// Comments attached to this node (populated after parsing).
+	LeadingComments  []string `parser:""`
+	TrailingComment  string   `parser:""`
 }
+
+// Span returns the source span of this node.
+func (t *Test) Span() Span { return Span{Start: t.Pos, End: t.EndPos} }
 
 // Assert represents an assertion block with optional query.
 // Expressions are captured as tokens and reconstructed as strings for expr.Compile().
@@ -148,9 +238,14 @@ type Test struct {
 //	assert CreatePost($title: "x") { p.title == "x" }        // named query with conditions
 //	assert `MATCH (n) RETURN count(n) as cnt` { cnt > 0 }    // inline query with conditions
 type Assert struct {
-	Query      *AssertQuery `parser:"'assert' @@? '{'"`
-	Conditions []*Expr      `parser:"(@@ Semi?)* '}'"`
+	Pos        lexer.Position `parser:""`
+	EndPos     lexer.Position `parser:""`
+	Query      *AssertQuery   `parser:"'assert' @@? '{'"`
+	Conditions []*Expr        `parser:"(@@ Semi?)* '}'"`
 }
+
+// Span returns the source span of this node.
+func (a *Assert) Span() Span { return Span{Start: a.Pos, End: a.EndPos} }
 
 // AssertQuery specifies the query to run before evaluating conditions.
 // Either an inline raw string query or a named query reference with params.
@@ -173,7 +268,9 @@ func (e *Expr) String() string {
 	if e == nil || len(e.Tokens) == 0 {
 		return ""
 	}
+
 	var b strings.Builder
+
 	for i, tok := range e.Tokens {
 		if i > 0 {
 			prev := e.Tokens[i-1]
@@ -185,17 +282,19 @@ func (e *Expr) String() string {
 			// - after comma (we add space after comma below)
 			needsSpace := !prev.IsDot() && !prev.IsOpenBracket() && !prev.Comma &&
 				!tok.IsDot() && !tok.IsCloseBracket() &&
-				!(prev.IsIdent() && tok.IsOpenBracket())
+				(!prev.IsIdent() || !tok.IsOpenBracket())
 			if needsSpace {
 				b.WriteByte(' ')
 			}
 		}
+
 		b.WriteString(tok.String())
 		// Add space after comma
 		if tok.Comma {
 			b.WriteByte(' ')
 		}
 	}
+
 	return b.String()
 }
 
@@ -291,13 +390,17 @@ func (s *Statement) Key() string {
 	if s.KeyParts == nil {
 		return ""
 	}
+
 	return s.KeyParts.String()
 }
 
 // NewStatement creates a Statement from a dot-separated key string and value.
 // This is a convenience constructor for testing and programmatic AST construction.
+//
+//nolint:funcorder
 func NewStatement(key string, value *Value) *Statement {
 	parts := strings.Split(key, ".")
+
 	return &Statement{
 		KeyParts: &DottedIdent{Parts: parts},
 		Value:    value,

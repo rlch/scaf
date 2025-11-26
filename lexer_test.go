@@ -752,3 +752,118 @@ func assertTokens(t *testing.T, expected, got []tokenExpect) {
 		}
 	}
 }
+
+func TestLexer_TriviaCollection(t *testing.T) {
+	// Not parallel - trivia state is shared across lexer calls
+	tests := []struct {
+		name             string
+		input            string
+		expectedComments []string
+	}{
+		{
+			name:             "single comment",
+			input:            "// comment\nfoo",
+			expectedComments: []string{"// comment"},
+		},
+		{
+			name:             "multiple comments",
+			input:            "// first\n// second\nfoo",
+			expectedComments: []string{"// first", "// second"},
+		},
+		{
+			name:             "trailing comment",
+			input:            "foo // trailing",
+			expectedComments: []string{"// trailing"},
+		},
+		{
+			name:             "no comments",
+			input:            "foo bar",
+			expectedComments: nil,
+		},
+		{
+			name:             "comment with blank line before",
+			input:            "foo\n\n// detached comment\nbar",
+			expectedComments: []string{"// detached comment"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Not parallel - trivia state is shared
+			def := scaf.ExportedLexer()
+
+			lex, err := def.Lex("", strings.NewReader(tt.input))
+			if err != nil {
+				t.Fatalf("Lex() error: %v", err)
+			}
+
+			// Consume all tokens
+			for {
+				tok, err := lex.Next()
+				if err != nil {
+					t.Fatalf("Next() error: %v", err)
+				}
+
+				if tok.EOF() {
+					break
+				}
+			}
+
+			// Check collected trivia
+			trivia := def.Trivia()
+			comments := trivia.All()
+
+			if len(comments) != len(tt.expectedComments) {
+				t.Fatalf("comment count = %d, want %d", len(comments), len(tt.expectedComments))
+			}
+
+			for i, exp := range tt.expectedComments {
+				if comments[i].Text != exp {
+					t.Errorf("comment[%d] = %q, want %q", i, comments[i].Text, exp)
+				}
+
+				if comments[i].Type != scaf.TriviaComment {
+					t.Errorf("comment[%d].Type = %v, want TriviaComment", i, comments[i].Type)
+				}
+			}
+		})
+	}
+}
+
+func TestLexer_TriviaDetachedComments(t *testing.T) {
+	// Not parallel - trivia state is shared across lexer calls
+	input := `foo
+
+// This is detached (blank line before)
+bar`
+
+	def := scaf.ExportedLexer()
+
+	lex, err := def.Lex("", strings.NewReader(input))
+	if err != nil {
+		t.Fatalf("Lex() error: %v", err)
+	}
+
+	// Consume all tokens
+	for {
+		tok, err := lex.Next()
+		if err != nil {
+			t.Fatalf("Next() error: %v", err)
+		}
+
+		if tok.EOF() {
+			break
+		}
+	}
+
+	trivia := def.Trivia()
+	comments := trivia.All()
+
+	if len(comments) != 1 {
+		t.Fatalf("expected 1 comment, got %d", len(comments))
+	}
+
+	if !comments[0].HasNewlineBefore {
+		t.Error("expected HasNewlineBefore to be true for detached comment")
+	}
+}

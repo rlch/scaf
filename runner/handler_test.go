@@ -1,4 +1,4 @@
-package runner
+package runner //nolint:testpackage
 
 import (
 	"context"
@@ -96,10 +96,11 @@ func TestStopOnFailHandler_Disabled(t *testing.T) {
 	h := NewStopOnFailHandler(0)
 	result := NewResult()
 
-	for i := 0; i < 10; i++ {
+	for range 10 {
 		result.Add(Event{Action: ActionFail, Path: []string{"Test"}})
 
-		if err := h.Event(context.Background(), Event{Action: ActionFail}, result); err != nil {
+		err := h.Event(context.Background(), Event{Action: ActionFail}, result)
+		if err != nil {
 			t.Error("should never stop when disabled")
 		}
 	}

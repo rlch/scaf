@@ -90,15 +90,18 @@ func isSetupQuery(name string) bool {
 // This is a simple implementation that looks for $identifier patterns.
 func extractQueryParams(query string) []string {
 	var params []string
+
 	seen := make(map[string]bool)
 
 	// Simple state machine to find $identifier
 	inParam := false
+
 	var current strings.Builder
 
 	for _, r := range query {
 		if r == '$' {
 			inParam = true
+
 			current.Reset()
 
 			continue
@@ -178,8 +181,8 @@ func (rc *ResolvedContext) ResolveSetup(moduleAlias, name string) (*Setup, error
 	} else {
 		// Import reference
 		var ok bool
-		target, ok = rc.Imports[moduleAlias]
 
+		target, ok = rc.Imports[moduleAlias]
 		if !ok {
 			return nil, &ResolveError{
 				Module: moduleAlias,

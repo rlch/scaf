@@ -3,9 +3,23 @@ package scaf_test
 import (
 	"testing"
 
+	"github.com/alecthomas/participle/v2/lexer"
 	"github.com/google/go-cmp/cmp"
+	"github.com/google/go-cmp/cmp/cmpopts"
 	"github.com/rlch/scaf"
 )
+
+// ignorePositions is a cmp option that ignores lexer.Position fields in comparisons.
+// This allows tests to compare AST structure without specifying exact source positions.
+var ignorePositions = cmp.Options{
+	cmpopts.IgnoreTypes(lexer.Position{}),
+	cmpopts.IgnoreFields(scaf.Suite{}, "LeadingComments", "TrailingComment"),
+	cmpopts.IgnoreFields(scaf.Import{}, "LeadingComments", "TrailingComment"),
+	cmpopts.IgnoreFields(scaf.Query{}, "LeadingComments", "TrailingComment"),
+	cmpopts.IgnoreFields(scaf.QueryScope{}, "LeadingComments", "TrailingComment"),
+	cmpopts.IgnoreFields(scaf.Group{}, "LeadingComments", "TrailingComment"),
+	cmpopts.IgnoreFields(scaf.Test{}, "LeadingComments", "TrailingComment"),
+}
 
 func ptr[T any](v T) *T {
 	return &v
@@ -379,12 +393,12 @@ func TestParse(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			got, err := scaf.Parse([]byte(tt.input))
+			result, err := scaf.Parse([]byte(tt.input))
 			if err != nil {
 				t.Fatalf("Parse() error: %v", err)
 			}
 
-			if diff := cmp.Diff(tt.expected, got); diff != "" {
+			if diff := cmp.Diff(tt.expected, result, ignorePositions); diff != "" {
 				t.Errorf("Parse() mismatch (-want +got):\n%s", diff)
 			}
 		})
@@ -439,12 +453,12 @@ func TestParseImports(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			got, err := scaf.Parse([]byte(tt.input))
+			result, err := scaf.Parse([]byte(tt.input))
 			if err != nil {
 				t.Fatalf("Parse() error: %v", err)
 			}
 
-			if diff := cmp.Diff(tt.expected, got.Imports); diff != "" {
+			if diff := cmp.Diff(tt.expected, result.Imports, ignorePositions); diff != "" {
 				t.Errorf("Parse() imports mismatch (-want +got):\n%s", diff)
 			}
 		})
@@ -529,19 +543,76 @@ func TestParseNamedSetup(t *testing.T) {
 				},
 			},
 		},
+		{
+			name: "setup block with single inline",
+			input: `
+				query Q ` + "`Q`" + `
+				Q {
+					setup { ` + "`CREATE (:User)`" + ` }
+					test "t" {}
+				}
+			`,
+			expected: &scaf.SetupClause{
+				Block: []*scaf.SetupItem{
+					{Inline: ptr("CREATE (:User)")},
+				},
+			},
+		},
+		{
+			name: "setup block with single named",
+			input: `
+				query Q ` + "`Q`" + `
+				Q {
+					setup { SetupUsers() }
+					test "t" {}
+				}
+			`,
+			expected: &scaf.SetupClause{
+				Block: []*scaf.SetupItem{
+					{Named: &scaf.NamedSetup{Name: "SetupUsers"}},
+				},
+			},
+		},
+		{
+			name: "setup block with multiple items",
+			input: `
+				query Q ` + "`Q`" + `
+				Q {
+					setup {
+						` + "`CREATE (:User)`" + `
+						SetupUsers()
+						fixtures.CreatePosts($n: 10)
+					}
+					test "t" {}
+				}
+			`,
+			expected: &scaf.SetupClause{
+				Block: []*scaf.SetupItem{
+					{Inline: ptr("CREATE (:User)")},
+					{Named: &scaf.NamedSetup{Name: "SetupUsers"}},
+					{Named: &scaf.NamedSetup{
+						Module: ptr("fixtures"),
+						Name:   "CreatePosts",
+						Params: []*scaf.SetupParam{
+							{Name: "$n", Value: &scaf.ParamValue{Literal: &scaf.Value{Number: ptr(10.0)}}},
+						},
+					}},
+				},
+			},
+		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			got, err := scaf.Parse([]byte(tt.input))
+			result, err := scaf.Parse([]byte(tt.input))
 			if err != nil {
 				t.Fatalf("Parse() error: %v", err)
 			}
 
-			gotSetup := got.Scopes[0].Setup
-			if diff := cmp.Diff(tt.expected, gotSetup); diff != "" {
+			gotSetup := result.Scopes[0].Setup
+			if diff := cmp.Diff(tt.expected, gotSetup, ignorePositions); diff != "" {
 				t.Errorf("Parse() setup mismatch (-want +got):\n%s", diff)
 			}
 		})
@@ -606,13 +677,13 @@ func TestParseValues(t *testing.T) {
 
 			src := `query Q ` + "`Q`" + ` Q { test "t" { v: ` + tt.input + ` } }`
 
-			got, err := scaf.Parse([]byte(src))
+			result, err := scaf.Parse([]byte(src))
 			if err != nil {
 				t.Fatalf("Parse() error: %v", err)
 			}
 
-			gotValue := got.Scopes[0].Items[0].Test.Statements[0].Value
-			if diff := cmp.Diff(tt.expected, gotValue); diff != "" {
+			gotValue := result.Scopes[0].Items[0].Test.Statements[0].Value
+			if diff := cmp.Diff(tt.expected, gotValue, ignorePositions); diff != "" {
 				t.Errorf("Value mismatch (-want +got):\n%s", diff)
 			}
 		})
@@ -677,7 +748,7 @@ func TestParseComments(t *testing.T) {
 		}
 	`
 
-	got, err := scaf.Parse([]byte(src))
+	result, err := scaf.Parse([]byte(src))
 	if err != nil {
 		t.Fatalf("Parse() error: %v", err)
 	}
@@ -694,7 +765,7 @@ func TestParseComments(t *testing.T) {
 		},
 	}
 
-	if diff := cmp.Diff(expected, got); diff != "" {
+	if diff := cmp.Diff(expected, result, ignorePositions); diff != "" {
 		t.Errorf("Parse() mismatch (-want +got):\n%s", diff)
 	}
 }
@@ -808,12 +879,12 @@ func TestParseExprAssert(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			got, err := scaf.Parse([]byte(tt.input))
+			result, err := scaf.Parse([]byte(tt.input))
 			if err != nil {
 				t.Fatalf("Parse() error: %v", err)
 			}
 
-			test := got.Scopes[0].Items[0].Test
+			test := result.Scopes[0].Items[0].Test
 			if len(test.Asserts) == 0 {
 				t.Fatal("Expected at least one assert")
 			}
@@ -902,12 +973,12 @@ func TestParseQueryAssert(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			got, err := scaf.Parse([]byte(tt.input))
+			result, err := scaf.Parse([]byte(tt.input))
 			if err != nil {
 				t.Fatalf("Parse() error: %v", err)
 			}
 
-			test := got.Scopes[0].Items[0].Test
+			test := result.Scopes[0].Items[0].Test
 			if len(test.Asserts) == 0 {
 				t.Fatal("Expected at least one assert")
 			}
@@ -923,14 +994,17 @@ func TestParseQueryAssert(t *testing.T) {
 					t.Errorf("Inline = %v, want %v", qa.Inline, *tt.expectedInline)
 				}
 			}
+
 			if tt.expectedQuery != nil {
 				if qa.QueryName == nil || *qa.QueryName != *tt.expectedQuery {
 					t.Errorf("QueryName = %v, want %v", qa.QueryName, *tt.expectedQuery)
 				}
 			}
+
 			if len(qa.Params) != tt.expectedParams {
 				t.Errorf("Params count = %d, want %d", len(qa.Params), tt.expectedParams)
 			}
+
 			if len(assert.Conditions) != tt.expectedConds {
 				t.Errorf("Conditions count = %d, want %d", len(assert.Conditions), tt.expectedConds)
 			}

@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io/fs"
 	"os"
@@ -12,6 +13,12 @@ import (
 	"github.com/rlch/scaf/module"
 	"github.com/rlch/scaf/runner"
 	"github.com/urfave/cli/v3"
+)
+
+var (
+	ErrNoScafFiles     = errors.New("no .scaf files found")
+	ErrNoDialect       = errors.New("no dialect specified (use --dialect or .scaf.yaml)")
+	ErrNoConnectionURI = errors.New("no connection URI specified (use --uri or .scaf.yaml)")
 )
 
 func testCommand() *cli.Command {
@@ -90,7 +97,7 @@ func runTest(ctx context.Context, cmd *cli.Command) error {
 	}
 
 	if len(files) == 0 {
-		return fmt.Errorf("no .scaf files found")
+		return ErrNoScafFiles
 	}
 
 	// Load config or use flags
@@ -104,7 +111,9 @@ func runTest(ctx context.Context, cmd *cli.Command) error {
 	// Try to load config file if dialect not specified
 	if dialectName == "" {
 		configDir := filepath.Dir(files[0])
-		if loadedCfg, err := scaf.LoadConfig(configDir); err == nil {
+
+		loadedCfg, err := scaf.LoadConfig(configDir)
+		if err == nil {
 			dialectName = loadedCfg.Dialect
 			if cfg.URI == "" {
 				cfg = loadedCfg.Connection
@@ -113,15 +122,15 @@ func runTest(ctx context.Context, cmd *cli.Command) error {
 	}
 
 	if dialectName == "" {
-		return fmt.Errorf("no dialect specified (use --dialect or .scaf.yaml)")
+		return ErrNoDialect
 	}
 
 	if cfg.URI == "" {
-		return fmt.Errorf("no connection URI specified (use --uri or .scaf.yaml)")
+		return ErrNoConnectionURI
 	}
 
 	// Parse all suites upfront and resolve modules (needed for TUI tree and named setups)
-	var suites []parsedSuite
+	suites := make([]parsedSuite, 0, len(files))
 
 	loader := module.NewLoader()
 	resolver := module.NewResolver(loader)
@@ -139,7 +148,7 @@ func runTest(ctx context.Context, cmd *cli.Command) error {
 		}
 
 		// Read raw data for display purposes
-		data, err := os.ReadFile(file)
+		data, err := os.ReadFile(file) //nolint:gosec // G304: file path from user input is expected
 		if err != nil {
 			return fmt.Errorf("reading %s: %w", file, err)
 		}
@@ -157,19 +166,22 @@ func runTest(ctx context.Context, cmd *cli.Command) error {
 	if err != nil {
 		return fmt.Errorf("failed to create dialect: %w", err)
 	}
-	defer dialect.Close()
+
+	defer func() { _ = dialect.Close() }()
 
 	// Create formatter/handler
-	var formatHandler runner.Handler
 	verbose := cmd.Bool("verbose")
 
-	if cmd.Bool("json") {
+	var formatHandler runner.Handler
+
+	switch {
+	case cmd.Bool("json"):
 		formatter := runner.NewJSONFormatter(os.Stdout)
 		formatHandler = runner.NewFormatHandler(formatter, os.Stderr)
-	} else if verbose {
+	case verbose:
 		formatter := runner.NewVerboseFormatter(os.Stdout)
 		formatHandler = runner.NewFormatHandler(formatter, os.Stderr)
-	} else {
+	default:
 		// Build suite trees for TUI
 		trees := make([]runner.SuiteTree, len(suites))
 		for i, ps := range suites {
@@ -180,7 +192,8 @@ func runTest(ctx context.Context, cmd *cli.Command) error {
 		tuiHandler := runner.NewTUIHandler(os.Stdout, os.Stderr)
 		tuiHandler.SetSuites(trees)
 
-		if err := tuiHandler.Start(); err != nil {
+		err := tuiHandler.Start()
+		if err != nil {
 			return fmt.Errorf("failed to start TUI: %w", err)
 		}
 
@@ -220,7 +233,7 @@ func runTest(ctx context.Context, cmd *cli.Command) error {
 		}
 
 		if !totalResult.Ok() {
-			os.Exit(1)
+			return cli.Exit("", 1)
 		}
 	}
 

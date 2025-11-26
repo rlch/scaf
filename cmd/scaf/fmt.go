@@ -192,10 +192,7 @@ func printDiff(out io.Writer, path, original, formatted string) {
 	fmtLines := strings.Split(formatted, "\n")
 
 	// Simple line-by-line diff
-	maxLines := len(origLines)
-	if len(fmtLines) > maxLines {
-		maxLines = len(fmtLines)
-	}
+	maxLines := max(len(origLines), len(fmtLines))
 
 	for i := range maxLines {
 		var origLine, fmtLine string

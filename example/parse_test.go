@@ -18,10 +18,11 @@ func TestExamplesParse(t *testing.T) {
 
 	for _, f := range files {
 		t.Run(f, func(t *testing.T) {
-			data, err := os.ReadFile(f)
+			data, err := os.ReadFile(f) //nolint:gosec // test file reading from controlled glob pattern
 			if err != nil {
 				t.Fatalf("read error: %v", err)
 			}
+
 			_, err = scaf.Parse(data)
 			if err != nil {
 				t.Fatalf("parse error: %v", err)
@@ -37,10 +38,11 @@ func TestExamplesParse(t *testing.T) {
 
 	for _, f := range sharedFiles {
 		t.Run(f, func(t *testing.T) {
-			data, err := os.ReadFile(f)
+			data, err := os.ReadFile(f) //nolint:gosec // test file reading from controlled glob pattern
 			if err != nil {
 				t.Fatalf("read error: %v", err)
 			}
+
 			suite, err := scaf.Parse(data)
 			if err != nil {
 				t.Fatalf("parse error: %v", err)

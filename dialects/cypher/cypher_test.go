@@ -1,7 +1,9 @@
+//nolint:testpackage
 package cypher
 
 import (
 	"os"
+	"slices"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
@@ -11,31 +13,24 @@ import (
 
 func TestDialect_Name(t *testing.T) {
 	d := setupIntegrationTest(t)
-	defer d.Close()
+
+	defer func() { _ = d.Close() }()
 
 	if got := d.Name(); got != "cypher" {
 		t.Errorf("Name() = %q, want %q", got, "cypher")
 	}
 }
 
-func TestDialect_ImplementsInterface(t *testing.T) {
+func TestDialect_ImplementsInterface(_ *testing.T) {
 	var _ scaf.Dialect = (*Dialect)(nil)
+
 	var _ scaf.Transactional = (*Dialect)(nil)
 }
 
 func TestDialect_Registration(t *testing.T) {
 	dialects := scaf.RegisteredDialects()
 
-	found := false
-	for _, name := range dialects {
-		if name == "cypher" {
-			found = true
-
-			break
-		}
-	}
-
-	if !found {
+	if !slices.Contains(dialects, "cypher") {
 		t.Error("cypher dialect not registered")
 	}
 }
@@ -152,7 +147,8 @@ func TestFlattenRecord_NestedMap(t *testing.T) {
 
 func TestDialect_Execute_Integration(t *testing.T) {
 	d := setupIntegrationTest(t)
-	defer d.Close()
+
+	defer func() { _ = d.Close() }()
 
 	ctx := t.Context()
 
@@ -187,7 +183,8 @@ func TestDialect_Execute_Integration(t *testing.T) {
 
 func TestDialect_Transaction_Integration(t *testing.T) {
 	d := setupIntegrationTest(t)
-	defer d.Close()
+
+	defer func() { _ = d.Close() }()
 
 	ctx := t.Context()
 
@@ -239,5 +236,10 @@ func setupIntegrationTest(t *testing.T) *Dialect {
 		t.Fatalf("failed to create dialect: %v", err)
 	}
 
-	return dialect.(*Dialect)
+	d, ok := dialect.(*Dialect)
+	if !ok {
+		t.Fatal("dialect is not *Dialect")
+	}
+
+	return d
 }

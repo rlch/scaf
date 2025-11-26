@@ -5,7 +5,7 @@ import (
 	"strings"
 )
 
-// Format formats a Suite AST back into scaf DSL source code.
+// Format formats a Suite AST back into scaf DSL source code, preserving comments.
 func Format(s *Suite) string {
 	var b strings.Builder
 
@@ -40,7 +40,24 @@ func (f *formatter) blankLine() {
 	f.write("\n")
 }
 
+// writeLeadingComments writes any leading comments.
+func (f *formatter) writeLeadingComments(leading []string) {
+	for _, comment := range leading {
+		f.writeLine(comment)
+	}
+}
+
+// writeTrailingComment appends a trailing comment to the current line if one exists.
+func (f *formatter) writeTrailingComment(trailing string) {
+	if trailing != "" {
+		f.write(" " + trailing)
+	}
+}
+
 func (f *formatter) formatSuite(s *Suite) {
+	// Leading comments for the whole file
+	f.writeLeadingComments(s.LeadingComments)
+
 	// Imports
 	for _, imp := range s.Imports {
 		f.formatImport(imp)
@@ -80,28 +97,73 @@ func (f *formatter) formatSuite(s *Suite) {
 }
 
 func (f *formatter) formatImport(imp *Import) {
+	f.writeLeadingComments(imp.LeadingComments)
+
 	if imp.Alias != nil {
-		f.writeLine("import " + *imp.Alias + " " + f.quotedString(imp.Path))
+		f.writeIndent()
+		f.write("import " + *imp.Alias + " " + f.quotedString(imp.Path))
 	} else {
-		f.writeLine("import " + f.quotedString(imp.Path))
+		f.writeIndent()
+		f.write("import " + f.quotedString(imp.Path))
 	}
+
+	f.writeTrailingComment(imp.TrailingComment)
+	f.write("\n")
 }
 
 func (f *formatter) formatQuery(q *Query) {
-	f.writeLine("query " + q.Name + " " + f.rawString(q.Body))
+	f.writeLeadingComments(q.LeadingComments)
+	f.writeIndent()
+	f.write("query " + q.Name + " " + f.rawString(q.Body))
+	f.writeTrailingComment(q.TrailingComment)
+	f.write("\n")
 }
 
 func (f *formatter) formatSetupClause(s *SetupClause) {
-	if s.Inline != nil {
+	switch {
+	case s.Inline != nil:
 		f.writeLine("setup " + f.rawString(*s.Inline))
-	} else if s.Named != nil {
-		f.formatNamedSetup(s.Named)
+	case s.Named != nil:
+		f.writeLine("setup " + f.formatNamedSetupCall(s.Named))
+	case len(s.Block) > 0:
+		f.formatSetupBlock(s.Block)
 	}
 }
 
-func (f *formatter) formatNamedSetup(ns *NamedSetup) {
+func (f *formatter) formatSetupBlock(items []*SetupItem) {
+	if len(items) == 1 {
+		// Single item - inline format
+		f.writeLine("setup { " + f.formatSetupItem(items[0]) + " }")
+
+		return
+	}
+
+	// Multiple items - block format
+	f.writeLine("setup {")
+	f.indent++
+
+	for _, item := range items {
+		f.writeLine(f.formatSetupItem(item))
+	}
+
+	f.indent--
+	f.writeLine("}")
+}
+
+func (f *formatter) formatSetupItem(item *SetupItem) string {
+	if item.Inline != nil {
+		return f.rawString(*item.Inline)
+	}
+
+	if item.Named != nil {
+		return f.formatNamedSetupCall(item.Named)
+	}
+
+	return ""
+}
+
+func (f *formatter) formatNamedSetupCall(ns *NamedSetup) string {
 	var b strings.Builder
-	b.WriteString("setup ")
 
 	if ns.Module != nil {
 		b.WriteString(*ns.Module)
@@ -115,13 +177,15 @@ func (f *formatter) formatNamedSetup(ns *NamedSetup) {
 		if i > 0 {
 			b.WriteString(", ")
 		}
+
 		b.WriteString(p.Name)
 		b.WriteString(": ")
 		b.WriteString(f.formatParamValue(p.Value))
 	}
 
 	b.WriteString(")")
-	f.writeLine(b.String())
+
+	return b.String()
 }
 
 func (f *formatter) formatTeardown(body string) {
@@ -129,6 +193,7 @@ func (f *formatter) formatTeardown(body string) {
 }
 
 func (f *formatter) formatScope(s *QueryScope) {
+	f.writeLeadingComments(s.LeadingComments)
 	f.writeLine(s.QueryName + " {")
 	f.indent++
 
@@ -167,6 +232,7 @@ func (f *formatter) formatItems(items []*TestOrGroup, hasSetupOrTeardown bool) {
 }
 
 func (f *formatter) formatGroup(g *Group) {
+	f.writeLeadingComments(g.LeadingComments)
 	f.writeLine("group " + f.quotedString(g.Name) + " {")
 	f.indent++
 
@@ -185,6 +251,7 @@ func (f *formatter) formatGroup(g *Group) {
 }
 
 func (f *formatter) formatTest(t *Test) {
+	f.writeLeadingComments(t.LeadingComments)
 	f.writeLine("test " + f.quotedString(t.Name) + " {")
 	f.indent++
 
@@ -250,6 +317,7 @@ func (f *formatter) formatAssert(a *Assert) {
 				for _, p := range a.Query.Params {
 					params = append(params, p.Name+": "+f.formatParamValue(p.Value))
 				}
+
 				queryPart += "(" + strings.Join(params, ", ") + ") "
 			} else {
 				queryPart += "() "
@@ -259,11 +327,13 @@ func (f *formatter) formatAssert(a *Assert) {
 
 	if len(a.Conditions) == 0 {
 		f.writeLine("assert " + queryPart + "{}")
+
 		return
 	}
 
 	if len(a.Conditions) == 1 {
 		f.writeLine("assert " + queryPart + "{ " + a.Conditions[0].String() + " }")
+
 		return
 	}
 
@@ -305,9 +375,11 @@ func (f *formatter) formatParamValue(v *ParamValue) string {
 	if v.IsFieldRef() {
 		return v.FieldRefString()
 	}
+
 	if v.Literal != nil {
 		return f.formatValue(v.Literal)
 	}
+
 	return "null"
 }
 

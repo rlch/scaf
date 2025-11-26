@@ -18,12 +18,13 @@ type ExprResult struct {
 // Returns the result of the boolean expression, or an error if:
 // - The expression fails to compile
 // - The expression fails to evaluate
-// - The expression doesn't return a boolean
+// - The expression doesn't return a boolean.
 func EvalExpr(exprStr string, env map[string]any) ExprResult {
 	result := ExprResult{Expression: exprStr}
 
 	if strings.TrimSpace(exprStr) == "" {
 		result.Passed = true
+
 		return result
 	}
 
@@ -31,6 +32,7 @@ func EvalExpr(exprStr string, env map[string]any) ExprResult {
 	program, err := expr.Compile(exprStr, expr.Env(env), expr.AsBool())
 	if err != nil {
 		result.Error = fmt.Errorf("compile expression %q: %w", exprStr, err)
+
 		return result
 	}
 
@@ -38,6 +40,7 @@ func EvalExpr(exprStr string, env map[string]any) ExprResult {
 	output, err := expr.Run(program, env)
 	if err != nil {
 		result.Error = fmt.Errorf("evaluate expression %q: %w", exprStr, err)
+
 		return result
 	}
 
@@ -50,6 +53,7 @@ func EvalExpr(exprStr string, env map[string]any) ExprResult {
 	}
 
 	result.Passed = passed
+
 	return result
 }
 
@@ -57,23 +61,28 @@ func EvalExpr(exprStr string, env map[string]any) ExprResult {
 // Returns results for each expression. Evaluation continues even if some fail.
 func EvalExprs(exprs []string, env map[string]any) []ExprResult {
 	results := make([]ExprResult, len(exprs))
+
 	for i, e := range exprs {
 		results[i] = EvalExpr(e, env)
 	}
+
 	return results
 }
 
 // EvalExprsStopOnFail evaluates expressions and stops at the first failure.
 // Returns the results evaluated so far.
 func EvalExprsStopOnFail(exprs []string, env map[string]any) []ExprResult {
-	var results []ExprResult
+	results := make([]ExprResult, 0, len(exprs))
+
 	for _, e := range exprs {
 		result := EvalExpr(e, env)
 		results = append(results, result)
+
 		if result.Error != nil || !result.Passed {
 			break
 		}
 	}
+
 	return results
 }
 
@@ -84,6 +93,7 @@ func AllPassed(results []ExprResult) bool {
 			return false
 		}
 	}
+
 	return true
 }
 
@@ -94,5 +104,6 @@ func FirstFailure(results []ExprResult) *ExprResult {
 			return &results[i]
 		}
 	}
+
 	return nil
 }

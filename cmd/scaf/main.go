@@ -8,7 +8,7 @@ import (
 
 	"github.com/urfave/cli/v3"
 
-	// Register dialects
+	// Register dialects.
 	_ "github.com/rlch/scaf/dialects/cypher"
 )
 

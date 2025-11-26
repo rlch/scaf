@@ -1,11 +1,25 @@
 package scaf_test
 
 import (
+	"strings"
 	"testing"
 
+	"github.com/alecthomas/participle/v2/lexer"
 	"github.com/google/go-cmp/cmp"
+	"github.com/google/go-cmp/cmp/cmpopts"
 	"github.com/rlch/scaf"
 )
+
+// ignorePos ignores lexer.Position and comment fields in comparisons.
+var ignorePos = cmp.Options{
+	cmpopts.IgnoreTypes(lexer.Position{}),
+	cmpopts.IgnoreFields(scaf.Suite{}, "LeadingComments", "TrailingComment"),
+	cmpopts.IgnoreFields(scaf.Import{}, "LeadingComments", "TrailingComment"),
+	cmpopts.IgnoreFields(scaf.Query{}, "LeadingComments", "TrailingComment"),
+	cmpopts.IgnoreFields(scaf.QueryScope{}, "LeadingComments", "TrailingComment"),
+	cmpopts.IgnoreFields(scaf.Group{}, "LeadingComments", "TrailingComment"),
+	cmpopts.IgnoreFields(scaf.Test{}, "LeadingComments", "TrailingComment"),
+}
 
 // inlineSetup creates a SetupClause with an inline query.
 func inlineSetup(body string) *scaf.SetupClause {
@@ -675,8 +689,8 @@ func TestFormatPreservesSemantics(t *testing.T) {
 		t.Fatalf("Parse() error: %v\nFormatted:\n%s", err, formatted)
 	}
 
-	// Compare ASTs
-	if diff := cmp.Diff(suite, parsed); diff != "" {
+	// Compare ASTs (ignoring position info since it won't match)
+	if diff := cmp.Diff(suite, parsed, ignorePos); diff != "" {
 		t.Errorf("AST mismatch after format+parse (-original +parsed):\n%s", diff)
 	}
 }
@@ -954,5 +968,51 @@ Q {
 	got := scaf.Format(suite)
 	if diff := cmp.Diff(expected, got); diff != "" {
 		t.Errorf("Format() mismatch (-want +got):\n%s", diff)
+	}
+}
+
+func TestFormatWithComments(t *testing.T) {
+	// Not parallel - trivia state requires serialized access
+	input := "// File-level comment\nquery GetUser `MATCH (u:User) RETURN u`\n\n// Scope comment\nGetUser {\n\t// Group comment\n\tgroup \"tests\" {\n\t\t// Test comment\n\t\ttest \"finds user\" {\n\t\t\t$id: 1\n\t\t}\n\t}\n}\n"
+
+	result, err := scaf.Parse([]byte(input))
+	if err != nil {
+		t.Fatalf("Parse() error: %v", err)
+	}
+
+	got := scaf.Format(result)
+
+	// The formatter should preserve comments
+	if !strings.Contains(got, "// File-level comment") {
+		t.Errorf("Missing file-level comment in output:\n%s", got)
+	}
+
+	if !strings.Contains(got, "// Scope comment") {
+		t.Errorf("Missing scope comment in output:\n%s", got)
+	}
+
+	if !strings.Contains(got, "// Group comment") {
+		t.Errorf("Missing group comment in output:\n%s", got)
+	}
+
+	if !strings.Contains(got, "// Test comment") {
+		t.Errorf("Missing test comment in output:\n%s", got)
+	}
+}
+
+func TestFormatWithTrailingComments(t *testing.T) {
+	// Not parallel - trivia state requires serialized access
+	input := "query GetUser `MATCH (u:User) RETURN u` // query comment\n\nGetUser {\n\ttest \"finds user\" {\n\t\t$id: 1\n\t}\n}\n"
+
+	result, err := scaf.Parse([]byte(input))
+	if err != nil {
+		t.Fatalf("Parse() error: %v", err)
+	}
+
+	got := scaf.Format(result)
+
+	// The formatter should preserve trailing comments
+	if !strings.Contains(got, "// query comment") {
+		t.Errorf("Missing trailing comment in output:\n%s", got)
 	}
 }

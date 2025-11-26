@@ -1,5 +1,4 @@
 // Example demonstrating module imports and named setups
-
 import fixtures "./shared/fixtures"
 
 query GetUser `
@@ -17,17 +16,16 @@ MATCH (p:Post {authorId: $authorId})
 RETURN count(p) as postCount
 `
 
-// Global setup using imported fixture
 setup fixtures.SetupCleanDB()
-
 teardown `
 MATCH (n) DETACH DELETE n
 `
 
+// Global setup using imported fixture
 GetUser {
-	// Scope setup using imported fixture
 	setup fixtures.SetupUsers()
 
+	// Scope setup using imported fixture
 	group "basic lookups" {
 		test "finds Alice by id" {
 			$userId: 1
@@ -53,20 +51,17 @@ GetUser {
 			u.age: 30
 			u.verified: true
 
-			// Use field ref: pass u.id from GetUser result to CountUserPosts
-			assert CountUserPosts($authorId: u.id) {
-				postCount == 0
-			}
+			assert CountUserPosts($authorId: u.id) { postCount == 0 }
 		}
 	}
 }
 
+// Use field ref: pass u.id from GetUser result to CountUserPosts
 GetUserPosts {
-	// Setup using imported fixtures with parameters
 	setup fixtures.SetupUsers()
 
+	// Setup using imported fixtures with parameters
 	test "user with post" {
-		// Additional test-level setup using imported fixture
 		setup fixtures.SetupPosts($postId: 0, $title: "Hello World", $authorId: 1)
 
 		$authorId: 1

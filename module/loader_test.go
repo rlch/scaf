@@ -25,7 +25,9 @@ SetupTest {
 }
 `
 	scafPath := filepath.Join(tmpDir, "test.scaf")
-	if err := os.WriteFile(scafPath, []byte(scafContent), 0o600); err != nil {
+
+	err := os.WriteFile(scafPath, []byte(scafContent), 0o600)
+	if err != nil {
 		t.Fatalf("Failed to write test file: %v", err)
 	}
 
@@ -33,6 +35,8 @@ SetupTest {
 
 	// Test loading by full path
 	t.Run("load by full path", func(t *testing.T) {
+		t.Parallel()
+
 		mod, err := loader.Load(scafPath)
 		if err != nil {
 			t.Fatalf("Load() error: %v", err)
@@ -49,7 +53,10 @@ SetupTest {
 
 	// Test loading without extension
 	t.Run("load without extension", func(t *testing.T) {
+		t.Parallel()
+
 		pathWithoutExt := filepath.Join(tmpDir, "test")
+
 		mod, err := loader.Load(pathWithoutExt)
 		if err != nil {
 			t.Fatalf("Load() error: %v", err)
@@ -62,6 +69,8 @@ SetupTest {
 
 	// Test caching
 	t.Run("caching", func(t *testing.T) {
+		t.Parallel()
+
 		loader := module.NewLoader()
 
 		mod1, err := loader.Load(scafPath)
@@ -81,6 +90,8 @@ SetupTest {
 
 	// Test loading nonexistent file
 	t.Run("nonexistent file", func(t *testing.T) {
+		t.Parallel()
+
 		_, err := loader.Load(filepath.Join(tmpDir, "nonexistent.scaf"))
 		if err == nil {
 			t.Error("Expected error for nonexistent file")
@@ -95,7 +106,9 @@ func TestLoader_LoadFrom(t *testing.T) {
 
 	// Create directory structure
 	subDir := filepath.Join(tmpDir, "sub")
-	if err := os.MkdirAll(subDir, 0o750); err != nil {
+
+	err := os.MkdirAll(subDir, 0o750)
+	if err != nil {
 		t.Fatalf("Failed to create subdir: %v", err)
 	}
 
@@ -105,7 +118,9 @@ import "./sub/helper"
 query Q ` + "`Q`" + `
 `
 	mainPath := filepath.Join(tmpDir, "main.scaf")
-	if err := os.WriteFile(mainPath, []byte(mainContent), 0o600); err != nil {
+
+	err = os.WriteFile(mainPath, []byte(mainContent), 0o600)
+	if err != nil {
 		t.Fatalf("Failed to write main.scaf: %v", err)
 	}
 
@@ -113,8 +128,11 @@ query Q ` + "`Q`" + `
 	helperContent := `
 query SetupHelper ` + "`CREATE (:Helper)`" + `
 `
+
 	helperPath := filepath.Join(subDir, "helper.scaf")
-	if err := os.WriteFile(helperPath, []byte(helperContent), 0o600); err != nil {
+
+	err = os.WriteFile(helperPath, []byte(helperContent), 0o600)
+	if err != nil {
 		t.Fatalf("Failed to write helper.scaf: %v", err)
 	}
 
@@ -145,8 +163,11 @@ func TestLoader_Clear(t *testing.T) {
 	t.Parallel()
 
 	tmpDir := t.TempDir()
+
 	scafPath := filepath.Join(tmpDir, "test.scaf")
-	if err := os.WriteFile(scafPath, []byte(`query Q `+"`Q`"), 0o600); err != nil {
+
+	err := os.WriteFile(scafPath, []byte(`query Q `+"`Q`"), 0o600)
+	if err != nil {
 		t.Fatalf("Failed to write file: %v", err)
 	}
 

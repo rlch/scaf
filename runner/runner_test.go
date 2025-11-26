@@ -1,4 +1,4 @@
-package runner
+package runner //nolint:testpackage
 
 import (
 	"context"

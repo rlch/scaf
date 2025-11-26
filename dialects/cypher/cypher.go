@@ -11,6 +11,7 @@ import (
 	"github.com/rlch/scaf"
 )
 
+//nolint:gochecknoinits // Dialect self-registration pattern
 func init() {
 	scaf.RegisterDialect("cypher", New)
 }
@@ -23,7 +24,7 @@ type Dialect struct {
 }
 
 // New creates a new Cypher dialect from the given configuration.
-func New(cfg scaf.DialectConfig) (scaf.Dialect, error) {
+func New(cfg scaf.DialectConfig) (scaf.Dialect, error) { //nolint:ireturn // Factory returns interface per Dialect pattern
 	auth := neo4j.NoAuth()
 	if cfg.Username != "" {
 		auth = neo4j.BasicAuth(cfg.Username, cfg.Password, "")
@@ -45,7 +46,9 @@ func New(cfg scaf.DialectConfig) (scaf.Dialect, error) {
 
 	// Verify connectivity
 	ctx := context.Background()
-	if err := driver.VerifyConnectivity(ctx); err != nil {
+
+	err = driver.VerifyConnectivity(ctx)
+	if err != nil {
 		_ = driver.Close(ctx)
 
 		return nil, fmt.Errorf("cypher: failed to connect: %w", err)
@@ -106,7 +109,9 @@ func (d *Dialect) Execute(ctx context.Context, query string, params map[string]a
 // (contains RETURN, or is a write-only statement like CREATE/DELETE).
 func splitStatements(query string) []string {
 	lines := strings.Split(strings.TrimSpace(query), "\n")
+
 	var statements []string
+
 	var current strings.Builder
 
 	starterKeywords := []string{"MATCH", "CREATE", "MERGE", "DETACH", "OPTIONAL", "CALL", "UNWIND", "FOREACH"}
@@ -119,6 +124,7 @@ func splitStatements(query string) []string {
 				return true
 			}
 		}
+
 		return false
 	}
 
@@ -134,6 +140,7 @@ func splitStatements(query string) []string {
 				return true
 			}
 		}
+
 		return false
 	}
 
@@ -149,12 +156,14 @@ func splitStatements(query string) []string {
 			if stmt != "" {
 				statements = append(statements, stmt)
 			}
+
 			current.Reset()
 		}
 
 		if current.Len() > 0 {
 			current.WriteString("\n")
 		}
+
 		current.WriteString(line)
 	}
 
@@ -199,6 +208,7 @@ func flattenValue(result map[string]any, key string, value any) {
 		for prop, propVal := range v.Props {
 			result[key+"."+prop] = propVal
 		}
+
 		result[key+".type"] = v.Type
 		result[key+".elementId"] = v.ElementId
 
@@ -228,13 +238,15 @@ func (d *Dialect) Close() error {
 	ctx := context.Background()
 
 	if d.session != nil {
-		if err := d.session.Close(ctx); err != nil {
+		err := d.session.Close(ctx)
+		if err != nil {
 			return fmt.Errorf("cypher: failed to close session: %w", err)
 		}
 	}
 
 	if d.driver != nil {
-		if err := d.driver.Close(ctx); err != nil {
+		err := d.driver.Close(ctx)
+		if err != nil {
 			return fmt.Errorf("cypher: failed to close driver: %w", err)
 		}
 	}
@@ -243,7 +255,7 @@ func (d *Dialect) Close() error {
 }
 
 // Begin starts a new transaction for isolated test execution.
-func (d *Dialect) Begin(ctx context.Context) (scaf.Transaction, error) {
+func (d *Dialect) Begin(ctx context.Context) (scaf.Transaction, error) { //nolint:ireturn // Interface return per Transactional contract
 	tx, err := d.session.BeginTransaction(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("cypher: failed to begin transaction: %w", err)

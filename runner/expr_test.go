@@ -1,3 +1,4 @@
+//nolint:testpackage // Tests need access to internal types
 package runner
 
 import (
@@ -46,10 +47,12 @@ func TestEvalExpr_Comparisons(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
+
 			result := EvalExpr(tt.expr, tt.env)
 			if result.Error != nil {
 				t.Fatalf("unexpected error: %v", result.Error)
 			}
+
 			if result.Passed != tt.passed {
 				t.Errorf("EvalExpr(%q) = %v, want %v", tt.expr, result.Passed, tt.passed)
 			}
@@ -83,10 +86,12 @@ func TestEvalExpr_BooleanOperators(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
+
 			result := EvalExpr(tt.expr, tt.env)
 			if result.Error != nil {
 				t.Fatalf("unexpected error: %v", result.Error)
 			}
+
 			if result.Passed != tt.passed {
 				t.Errorf("EvalExpr(%q) = %v, want %v", tt.expr, result.Passed, tt.passed)
 			}
@@ -135,10 +140,12 @@ func TestEvalExpr_BuiltinFunctions(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
+
 			result := EvalExpr(tt.expr, tt.env)
 			if result.Error != nil {
 				t.Fatalf("unexpected error: %v", result.Error)
 			}
+
 			if result.Passed != tt.passed {
 				t.Errorf("EvalExpr(%q) = %v, want %v", tt.expr, result.Passed, tt.passed)
 			}
@@ -178,10 +185,12 @@ func TestEvalExpr_FieldAccess(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
+
 			result := EvalExpr(tt.expr, tt.env)
 			if result.Error != nil {
 				t.Fatalf("unexpected error: %v", result.Error)
 			}
+
 			if result.Passed != tt.passed {
 				t.Errorf("EvalExpr(%q) = %v, want %v", tt.expr, result.Passed, tt.passed)
 			}
@@ -221,10 +230,12 @@ func TestEvalExpr_ArrayAccess(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
+
 			result := EvalExpr(tt.expr, tt.env)
 			if result.Error != nil {
 				t.Fatalf("unexpected error: %v", result.Error)
 			}
+
 			if result.Passed != tt.passed {
 				t.Errorf("EvalExpr(%q) = %v, want %v", tt.expr, result.Passed, tt.passed)
 			}
@@ -250,10 +261,12 @@ func TestEvalExpr_NilHandling(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
+
 			result := EvalExpr(tt.expr, tt.env)
 			if result.Error != nil {
 				t.Fatalf("unexpected error: %v", result.Error)
 			}
+
 			if result.Passed != tt.passed {
 				t.Errorf("EvalExpr(%q) = %v, want %v", tt.expr, result.Passed, tt.passed)
 			}
@@ -276,10 +289,12 @@ func TestEvalExpr_EmptyExpression(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
+
 			result := EvalExpr(tt.expr, map[string]any{})
 			if result.Error != nil {
 				t.Errorf("unexpected error for empty expression: %v", result.Error)
 			}
+
 			if !result.Passed {
 				t.Error("empty expression should pass")
 			}
@@ -319,11 +334,14 @@ func TestEvalExpr_Errors(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
+
 			result := EvalExpr(tt.expr, tt.env)
 			if result.Error == nil {
 				t.Error("expected error, got nil")
+
 				return
 			}
+
 			if tt.errContains != "" && !strings.Contains(result.Error.Error(), tt.errContains) {
 				t.Errorf("error %q should contain %q", result.Error.Error(), tt.errContains)
 			}
@@ -352,6 +370,7 @@ func TestEvalExprs(t *testing.T) {
 		if r.Error != nil {
 			t.Errorf("results[%d] unexpected error: %v", i, r.Error)
 		}
+
 		if !r.Passed {
 			t.Errorf("results[%d] = false, want true", i)
 		}
@@ -378,9 +397,11 @@ func TestEvalExprs_ContinuesOnFailure(t *testing.T) {
 	if results[0].Passed {
 		t.Error("first expression should fail")
 	}
+
 	if !results[1].Passed {
 		t.Error("second expression should pass")
 	}
+
 	if !results[2].Passed {
 		t.Error("third expression should pass")
 	}
@@ -406,6 +427,7 @@ func TestEvalExprsStopOnFail(t *testing.T) {
 	if !results[0].Passed {
 		t.Error("first expression should pass")
 	}
+
 	if results[1].Passed {
 		t.Error("second expression should fail")
 	}
@@ -431,6 +453,7 @@ func TestEvalExprsStopOnFail_StopsOnError(t *testing.T) {
 	if !results[0].Passed {
 		t.Error("first expression should pass")
 	}
+
 	if results[1].Error == nil {
 		t.Error("second expression should have error")
 	}
@@ -481,6 +504,7 @@ func TestAllPassed(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
+
 			if got := AllPassed(tt.results); got != tt.want {
 				t.Errorf("AllPassed() = %v, want %v", got, tt.want)
 			}
@@ -544,16 +568,20 @@ func TestFirstFailure(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
+
 			got := FirstFailure(tt.results)
 			if tt.wantNil {
 				if got != nil {
 					t.Errorf("FirstFailure() = %v, want nil", got)
 				}
+
 				return
 			}
+
 			if got == nil {
 				t.Fatal("FirstFailure() = nil, want non-nil")
 			}
+
 			if got.Expression != tt.wantExpr {
 				t.Errorf("FirstFailure().Expression = %q, want %q", got.Expression, tt.wantExpr)
 			}
@@ -581,10 +609,12 @@ func TestEvalExpr_Arithmetic(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
+
 			result := EvalExpr(tt.expr, tt.env)
 			if result.Error != nil {
 				t.Fatalf("unexpected error: %v", result.Error)
 			}
+
 			if result.Passed != tt.passed {
 				t.Errorf("EvalExpr(%q) = %v, want %v", tt.expr, result.Passed, tt.passed)
 			}
@@ -630,10 +660,12 @@ func TestEvalExpr_InOperator(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
+
 			result := EvalExpr(tt.expr, tt.env)
 			if result.Error != nil {
 				t.Fatalf("unexpected error: %v", result.Error)
 			}
+
 			if result.Passed != tt.passed {
 				t.Errorf("EvalExpr(%q) = %v, want %v", tt.expr, result.Passed, tt.passed)
 			}
@@ -667,10 +699,12 @@ func TestEvalExpr_TernaryOperator(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
+
 			result := EvalExpr(tt.expr, tt.env)
 			if result.Error != nil {
 				t.Fatalf("unexpected error: %v", result.Error)
 			}
+
 			if result.Passed != tt.passed {
 				t.Errorf("EvalExpr(%q) = %v, want %v", tt.expr, result.Passed, tt.passed)
 			}

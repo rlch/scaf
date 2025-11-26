@@ -97,6 +97,7 @@ func TestNewModule(t *testing.T) {
 				setup, ok := mod.Setups[name]
 				if !ok {
 					t.Errorf("Setup %q not found", name)
+
 					continue
 				}
 

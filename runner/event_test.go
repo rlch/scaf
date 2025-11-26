@@ -1,3 +1,4 @@
+//nolint:testpackage // Tests need access to internal types
 package runner
 
 import "testing"

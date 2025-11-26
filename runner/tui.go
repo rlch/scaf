@@ -34,9 +34,7 @@ func NewTUIFormatter(w io.Writer, suites []SuiteTree) *TUIFormatter {
 	}
 
 	// Only use input if we have a TTY
-	if f, ok := w.(*os.File); ok && isatty.IsTerminal(f.Fd()) {
-		// TTY mode - full interactive
-	} else {
+	if f, ok := w.(*os.File); !ok || !isatty.IsTerminal(f.Fd()) {
 		// Non-TTY mode - disable input
 		opts = append(opts, tea.WithInput(nil))
 	}
@@ -90,7 +88,7 @@ func (t *TUIFormatter) Summary(result *Result) error {
 
 	// Print the final static output. The TUI used the alternate screen,
 	// so exiting it returns us to the main screen with clean scrollback.
-	fmt.Println(t.model.FinalView())
+	_, _ = io.WriteString(os.Stdout, t.model.FinalView()+"\n")
 
 	return nil
 }
@@ -252,7 +250,7 @@ type counters struct {
 	errors  int
 }
 
-// Messages
+// Messages.
 type (
 	tickMsg      time.Time
 	testEventMsg Event
@@ -297,13 +295,7 @@ func (m *tuiModel) Init() tea.Cmd {
 	)
 }
 
-func (m *tuiModel) tick() tea.Cmd {
-	return tea.Tick(100*time.Millisecond, func(t time.Time) tea.Msg {
-		return tickMsg(t)
-	})
-}
-
-func (m *tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+func (m *tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) { //nolint:ireturn // bubbletea.Model interface required by tea.Program
 	var cmds []tea.Cmd
 
 	switch msg := msg.(type) {
@@ -315,18 +307,18 @@ func (m *tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "ctrl+c":
 			// Always allow ctrl+c to quit
 			m.userQuit = true
+
 			return m, tea.Quit
 		case "esc", "q":
 			if m.isDone {
 				m.userQuit = true
+
 				return m, tea.Quit
 			}
 		case "j", "down":
 			// Scroll down
-			maxScroll := m.totalLines - m.viewportHeight()
-			if maxScroll < 0 {
-				maxScroll = 0
-			}
+			maxScroll := max(m.totalLines-m.viewportHeight(), 0)
+
 			if m.scrollOffset < maxScroll {
 				m.scrollOffset++
 			}
@@ -340,11 +332,7 @@ func (m *tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.scrollOffset = 0
 		case "G", "end":
 			// Jump to bottom
-			maxScroll := m.totalLines - m.viewportHeight()
-			if maxScroll < 0 {
-				maxScroll = 0
-			}
-			m.scrollOffset = maxScroll
+			m.scrollOffset = max(m.totalLines-m.viewportHeight(), 0)
 		}
 
 	case tea.WindowSizeMsg:
@@ -361,6 +349,7 @@ func (m *tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case spinner.TickMsg:
 		if !m.isDone {
 			var cmd tea.Cmd
+
 			m.spinner, cmd = m.spinner.Update(msg)
 			cmds = append(cmds, cmd)
 		}
@@ -377,18 +366,21 @@ func (m *tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, tea.Batch(cmds...)
 }
 
-// viewportHeight returns the number of lines available for content.
+func (m *tuiModel) tick() tea.Cmd { //nolint:funcorder
+	return tea.Tick(100*time.Millisecond, func(t time.Time) tea.Msg {
+		return tickMsg(t)
+	})
+}
+
+//nolint:funcorder // viewportHeight returns the number of lines available for content.
 func (m *tuiModel) viewportHeight() int {
 	// Reserve lines for header, spacing, and footer
 	reserved := 5 // header + blank + summary + footer hint + blank
-	h := m.height - reserved
-	if h < 1 {
-		h = 1
-	}
-	return h
+
+	return max(m.height-reserved, 1)
 }
 
-func (m *tuiModel) handleEvent(event Event) {
+func (m *tuiModel) handleEvent(event Event) { //nolint:funcorder
 	// Key format: "suite::path/to/test"
 	key := event.Suite + "::" + event.PathString()
 	node, ok := m.allIdx[key]
@@ -424,6 +416,9 @@ func (m *tuiModel) handleEvent(event Event) {
 		node.elapsed = event.Elapsed
 		node.err = event.Error
 		m.counters.errors++
+
+	case ActionOutput, ActionSetup:
+		// These actions don't affect the test tree display
 	}
 }
 
@@ -455,7 +450,9 @@ func (m *tuiModel) FinalView() string {
 
 func (m *tuiModel) View() string {
 	var headerLines []string
+
 	var contentLines []string
+
 	var footerLines []string
 
 	// Header (fixed at top)
@@ -474,6 +471,7 @@ func (m *tuiModel) View() string {
 	// Footer: summary with progress bar (always shown)
 	footerLines = append(footerLines, "")
 	footerLines = append(footerLines, m.renderSummaryWithProgress())
+
 	if m.isDone {
 		footerLines = append(footerLines, m.styles.Dim.Render("  Press ESC or q to exit"))
 	}
@@ -486,9 +484,11 @@ func (m *tuiModel) View() string {
 	if startIdx > len(contentLines) {
 		startIdx = len(contentLines)
 	}
+
 	if endIdx > len(contentLines) {
 		endIdx = len(contentLines)
 	}
+
 	if startIdx < 0 {
 		startIdx = 0
 	}
@@ -501,7 +501,7 @@ func (m *tuiModel) View() string {
 	}
 
 	// Combine all lines
-	var lines []string
+	lines := make([]string, 0, len(headerLines)+len(visibleContent)+5)
 	lines = append(lines, headerLines...)
 	lines = append(lines, visibleContent...)
 
@@ -573,6 +573,7 @@ func (m *tuiModel) renderTree(st SuiteTree) string {
 	}
 
 	b.WriteString("\n")
+
 	return b.String()
 }
 
@@ -609,15 +610,19 @@ func (m *tuiModel) computeGroupStatus(node *treeNode) nodeStatus {
 	if hasRunning {
 		return statusRunning
 	}
+
 	if hasFailed {
 		return statusFail
 	}
+
 	if hasPending {
 		return statusPending
 	}
+
 	if allPassed && len(node.children) > 0 {
 		return statusPass
 	}
+
 	return statusPending
 }
 
@@ -633,7 +638,10 @@ func (m *tuiModel) renderNode(b *strings.Builder, node *treeNode, prefix string,
 
 	// Name with appropriate styling
 	name := node.name
+
 	switch node.kind {
+	case kindSuite:
+		// Suite nodes are rendered as file headers, not in the tree
 	case kindScope:
 		name = m.styles.Bold.Render(name)
 	case kindGroup:
@@ -666,6 +674,7 @@ func (m *tuiModel) renderNode(b *strings.Builder, node *treeNode, prefix string,
 		}
 
 		detail := fmt.Sprintf("%s: expected %v, got %v", node.field, node.expect, node.actual)
+
 		b.WriteString(m.styles.Dim.Render(detailPrefix + "   "))
 		b.WriteString(m.styles.Fail.Render(detail))
 		b.WriteString("\n")
@@ -760,6 +769,7 @@ func (m *tuiModel) renderSummaryWithProgress() string {
 	if !m.endTime.IsZero() {
 		elapsed = m.endTime.Sub(m.startTime)
 	}
+
 	elapsedStr := m.styles.Dim.Render(fmt.Sprintf("[%s]", formatDuration(elapsed)))
 
 	// Fixed width progress bar
@@ -770,17 +780,11 @@ func (m *tuiModel) renderSummaryWithProgress() string {
 	if total > 0 {
 		pct = float64(done) / float64(total)
 	}
-	if pct > 1.0 {
-		pct = 1.0
-	}
 
-	filled := int(pct * float64(barWidth))
-	if filled < 0 {
-		filled = 0
-	}
-	if filled > barWidth {
-		filled = barWidth
-	}
+	pct = min(pct, 1.0)
+
+	filled := max(min(int(pct*float64(barWidth)), barWidth), 0)
+
 	empty := barWidth - filled
 
 	filledChar, emptyChar := ProgressChars()
@@ -825,7 +829,7 @@ type TUIHandler struct {
 
 // NewTUIHandler creates a handler that uses the TUI formatter.
 // Call SetSuites before Start to initialize the tree view.
-func NewTUIHandler(w io.Writer, stderr io.Writer) *TUIHandler {
+func NewTUIHandler(_ io.Writer, stderr io.Writer) *TUIHandler {
 	return &TUIHandler{
 		stderr: stderr,
 	}

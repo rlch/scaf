@@ -20,3 +20,5 @@ linters:
     - varnamelen # s, t, etc are fine
     - wrapcheck # Not wrapping participle errors
     - maintidx # Table-driven tests
+    - lll # Line length in tests is fine
+    - mnd # Magic numbers in tests are fine

@@ -2,9 +2,9 @@ package runner
 
 import "github.com/charmbracelet/lipgloss"
 
-// Semantic colors following nextest/vitest conventions
+// Semantic colors following nextest/vitest conventions.
 var (
-	// Status colors
+	// Status colors.
 	colorPass    = lipgloss.Color("#10b981") // green-500
 	colorFail    = lipgloss.Color("#ef4444") // red-500
 	colorSkip    = lipgloss.Color("#eab308") // yellow-500
@@ -107,6 +107,6 @@ func SpinnerFrames() []string {
 }
 
 // ProgressChars returns the progress bar characters.
-func ProgressChars() (filled, empty string) {
+func ProgressChars() (string, string) {
 	return "█", "░"
 }

@@ -1,3 +1,4 @@
+//nolint:testpackage // Tests need access to internal types
 package runner
 
 import (
@@ -56,7 +57,9 @@ func TestJSONFormatter_Format(t *testing.T) {
 	}, nil)
 
 	var got map[string]any
-	if err := json.Unmarshal(buf.Bytes(), &got); err != nil {
+
+	err := json.Unmarshal(buf.Bytes(), &got)
+	if err != nil {
 		t.Fatalf("invalid JSON: %v", err)
 	}
 
@@ -86,7 +89,9 @@ func TestJSONFormatter_Summary(t *testing.T) {
 	_ = f.Summary(result)
 
 	var got map[string]any
-	if err := json.Unmarshal(buf.Bytes(), &got); err != nil {
+
+	err := json.Unmarshal(buf.Bytes(), &got)
+	if err != nil {
 		t.Fatalf("invalid JSON: %v", err)
 	}
 

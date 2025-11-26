@@ -2,8 +2,12 @@ package scaf
 
 import (
 	"context"
+	"errors"
 	"fmt"
 )
+
+// ErrNoTransactionSupport is returned when a dialect does not support transactions.
+var ErrNoTransactionSupport = errors.New("dialect does not support transactions")
 
 // Dialect defines the interface for database backends.
 type Dialect interface {
@@ -63,7 +67,7 @@ func RegisterDialect(name string, factory DialectFactory) {
 }
 
 // NewDialect creates a dialect instance by name.
-func NewDialect(name string, cfg DialectConfig) (*dialectWrapper, error) {
+func NewDialect(name string, cfg DialectConfig) (Dialect, error) { //nolint:ireturn
 	factory, ok := dialects[name]
 	if !ok {
 		return nil, fmt.Errorf("%w: %s", ErrUnknownDialect, name)
@@ -83,17 +87,18 @@ type dialectWrapper struct {
 }
 
 // Begin delegates to the underlying dialect if it supports transactions.
-func (w *dialectWrapper) Begin(ctx context.Context) (Transaction, error) {
+func (w *dialectWrapper) Begin(ctx context.Context) (Transaction, error) { //nolint:ireturn
 	if tx, ok := w.Dialect.(Transactional); ok {
 		return tx.Begin(ctx)
 	}
 
-	return nil, fmt.Errorf("dialect does not support transactions")
+	return nil, ErrNoTransactionSupport
 }
 
 // Transactional returns true if the underlying dialect supports transactions.
 func (w *dialectWrapper) Transactional() bool {
 	_, ok := w.Dialect.(Transactional)
+
 	return ok
 }
 
@@ -105,4 +110,53 @@ func RegisteredDialects() []string {
 	}
 
 	return names
+}
+
+// QueryAnalyzer provides static analysis of queries for IDE features.
+// Dialects can optionally implement this to provide better completions.
+type QueryAnalyzer interface {
+	// AnalyzeQuery extracts metadata from a query string.
+	AnalyzeQuery(query string) (*QueryMetadata, error)
+}
+
+// QueryMetadata holds extracted information about a query.
+type QueryMetadata struct {
+	// Parameters are the $-prefixed parameters used in the query.
+	Parameters []ParameterInfo
+
+	// Returns are the fields returned by the query.
+	Returns []ReturnInfo
+}
+
+// ParameterInfo describes a query parameter.
+type ParameterInfo struct {
+	// Name is the parameter name (without $ prefix).
+	Name string
+
+	// Type is the inferred type, if known (e.g., "string", "int").
+	Type string
+
+	// Position is the character offset in the query.
+	Position int
+
+	// Count is how many times this parameter appears.
+	Count int
+}
+
+// ReturnInfo describes a returned field.
+type ReturnInfo struct {
+	// Name is the field name or alias.
+	Name string
+
+	// Type is the inferred type, if known.
+	Type string
+
+	// Expression is the original expression text.
+	Expression string
+
+	// IsAggregate indicates this is an aggregate function result.
+	IsAggregate bool
+
+	// IsWildcard indicates this is a wildcard (*) return.
+	IsWildcard bool
 }

@@ -1,6 +1,5 @@
 // Shared fixtures for test suites
 // This module provides reusable setup queries that can be imported
-
 // SetupUsers creates a standard set of test users
 query SetupUsers `
 CREATE (alice:User {id: 1, name: "Alice", email: "alice@example.com", age: 30, verified: true})

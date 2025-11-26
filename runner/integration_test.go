@@ -47,7 +47,9 @@ func TestRunner_FileBasedModuleResolution(t *testing.T) {
 query SetupTestData ` + "`CREATE (:Test {name: $name})`" + `
 `
 	fixturesPath := filepath.Join(tmpDir, "fixtures.scaf")
-	if err := os.WriteFile(fixturesPath, []byte(fixturesContent), 0o600); err != nil {
+
+	err := os.WriteFile(fixturesPath, []byte(fixturesContent), 0o600)
+	if err != nil {
 		t.Fatal(err)
 	}
 
@@ -66,7 +68,9 @@ GetTest {
 }
 `
 	mainPath := filepath.Join(tmpDir, "main.scaf")
-	if err := os.WriteFile(mainPath, []byte(mainContent), 0o600); err != nil {
+
+	err = os.WriteFile(mainPath, []byte(mainContent), 0o600)
+	if err != nil {
 		t.Fatal(err)
 	}
 
@@ -122,7 +126,9 @@ func TestRunner_TransitiveImports(t *testing.T) {
 query SetupHelperData ` + "`CREATE (:Helper {value: $value})`" + `
 `
 	helperPath := filepath.Join(tmpDir, "helper.scaf")
-	if err := os.WriteFile(helperPath, []byte(helperContent), 0o600); err != nil {
+
+	err := os.WriteFile(helperPath, []byte(helperContent), 0o600)
+	if err != nil {
 		t.Fatal(err)
 	}
 
@@ -132,7 +138,9 @@ import "./helper"
 query SetupFixtures ` + "`CREATE (:Fixture)`" + `
 `
 	fixturesPath := filepath.Join(tmpDir, "fixtures.scaf")
-	if err := os.WriteFile(fixturesPath, []byte(fixturesContent), 0o600); err != nil {
+
+	err = os.WriteFile(fixturesPath, []byte(fixturesContent), 0o600)
+	if err != nil {
 		t.Fatal(err)
 	}
 
@@ -149,7 +157,9 @@ GetData {
 }
 `
 	mainPath := filepath.Join(tmpDir, "main.scaf")
-	if err := os.WriteFile(mainPath, []byte(mainContent), 0o600); err != nil {
+
+	err = os.WriteFile(mainPath, []byte(mainContent), 0o600)
+	if err != nil {
 		t.Fatal(err)
 	}
 
@@ -207,7 +217,9 @@ query SetupScope ` + "`CREATE (:Scope {id: $id})`" + `
 query SetupTest ` + "`CREATE (:Test {name: $name})`" + `
 `
 	fixturesPath := filepath.Join(tmpDir, "fixtures.scaf")
-	if err := os.WriteFile(fixturesPath, []byte(fixturesContent), 0o600); err != nil {
+
+	err := os.WriteFile(fixturesPath, []byte(fixturesContent), 0o600)
+	if err != nil {
 		t.Fatal(err)
 	}
 
@@ -230,7 +242,9 @@ GetData {
 }
 `
 	mainPath := filepath.Join(tmpDir, "main.scaf")
-	if err := os.WriteFile(mainPath, []byte(mainContent), 0o600); err != nil {
+
+	err = os.WriteFile(mainPath, []byte(mainContent), 0o600)
+	if err != nil {
 		t.Fatal(err)
 	}
 
@@ -307,7 +321,9 @@ GetData {
 }
 `
 	mainPath := filepath.Join(tmpDir, "main.scaf")
-	if err := os.WriteFile(mainPath, []byte(content), 0o600); err != nil {
+
+	err := os.WriteFile(mainPath, []byte(content), 0o600)
+	if err != nil {
 		t.Fatal(err)
 	}
 
@@ -342,7 +358,9 @@ func TestRunner_NestedDirectoryImports(t *testing.T) {
 
 	// Create nested directory structure
 	sharedDir := filepath.Join(tmpDir, "shared")
-	if err := os.MkdirAll(sharedDir, 0o750); err != nil {
+
+	err := os.MkdirAll(sharedDir, 0o750)
+	if err != nil {
 		t.Fatal(err)
 	}
 
@@ -351,7 +369,9 @@ func TestRunner_NestedDirectoryImports(t *testing.T) {
 query SetupShared ` + "`CREATE (:Shared {key: $key})`" + `
 `
 	fixturesPath := filepath.Join(sharedDir, "fixtures.scaf")
-	if err := os.WriteFile(fixturesPath, []byte(fixturesContent), 0o600); err != nil {
+
+	err = os.WriteFile(fixturesPath, []byte(fixturesContent), 0o600)
+	if err != nil {
 		t.Fatal(err)
 	}
 
@@ -368,7 +388,9 @@ GetData {
 }
 `
 	mainPath := filepath.Join(tmpDir, "main.scaf")
-	if err := os.WriteFile(mainPath, []byte(mainContent), 0o600); err != nil {
+
+	err = os.WriteFile(mainPath, []byte(mainContent), 0o600)
+	if err != nil {
 		t.Fatal(err)
 	}
 
@@ -415,7 +437,9 @@ func TestRunner_SetupWithVariousParamTypes(t *testing.T) {
 query SetupWithTypes ` + "`CREATE (:Node {str: $str, num: $num, bool: $bool, nothing: $nothing})`" + `
 `
 	fixturesPath := filepath.Join(tmpDir, "fixtures.scaf")
-	if err := os.WriteFile(fixturesPath, []byte(fixturesContent), 0o600); err != nil {
+
+	err := os.WriteFile(fixturesPath, []byte(fixturesContent), 0o600)
+	if err != nil {
 		t.Fatal(err)
 	}
 
@@ -432,7 +456,9 @@ GetData {
 }
 `
 	mainPath := filepath.Join(tmpDir, "main.scaf")
-	if err := os.WriteFile(mainPath, []byte(mainContent), 0o600); err != nil {
+
+	err = os.WriteFile(mainPath, []byte(mainContent), 0o600)
+	if err != nil {
 		t.Fatal(err)
 	}
 
@@ -498,7 +524,9 @@ GetData {
 }
 `
 	mainPath := filepath.Join(tmpDir, "main.scaf")
-	if err := os.WriteFile(mainPath, []byte(mainContent), 0o600); err != nil {
+
+	err := os.WriteFile(mainPath, []byte(mainContent), 0o600)
+	if err != nil {
 		t.Fatal(err)
 	}
 
@@ -536,7 +564,9 @@ func TestRunner_UnknownSetupError(t *testing.T) {
 query SetupOther ` + "`CREATE (:Other)`" + `
 `
 	fixturesPath := filepath.Join(tmpDir, "fixtures.scaf")
-	if err := os.WriteFile(fixturesPath, []byte(fixturesContent), 0o600); err != nil {
+
+	err := os.WriteFile(fixturesPath, []byte(fixturesContent), 0o600)
+	if err != nil {
 		t.Fatal(err)
 	}
 
@@ -553,7 +583,9 @@ GetData {
 }
 `
 	mainPath := filepath.Join(tmpDir, "main.scaf")
-	if err := os.WriteFile(mainPath, []byte(mainContent), 0o600); err != nil {
+
+	err = os.WriteFile(mainPath, []byte(mainContent), 0o600)
+	if err != nil {
 		t.Fatal(err)
 	}
 
@@ -591,7 +623,9 @@ func TestRunner_GroupLevelSetup(t *testing.T) {
 query SetupGroup ` + "`CREATE (:Group {name: $name})`" + `
 `
 	fixturesPath := filepath.Join(tmpDir, "fixtures.scaf")
-	if err := os.WriteFile(fixturesPath, []byte(fixturesContent), 0o600); err != nil {
+
+	err := os.WriteFile(fixturesPath, []byte(fixturesContent), 0o600)
+	if err != nil {
 		t.Fatal(err)
 	}
 
@@ -611,7 +645,9 @@ GetData {
 }
 `
 	mainPath := filepath.Join(tmpDir, "main.scaf")
-	if err := os.WriteFile(mainPath, []byte(mainContent), 0o600); err != nil {
+
+	err = os.WriteFile(mainPath, []byte(mainContent), 0o600)
+	if err != nil {
 		t.Fatal(err)
 	}
 
@@ -653,7 +689,9 @@ func TestRunner_MixedInlineAndNamedSetups(t *testing.T) {
 query SetupNamed ` + "`CREATE (:Named)`" + `
 `
 	fixturesPath := filepath.Join(tmpDir, "fixtures.scaf")
-	if err := os.WriteFile(fixturesPath, []byte(fixturesContent), 0o600); err != nil {
+
+	err := os.WriteFile(fixturesPath, []byte(fixturesContent), 0o600)
+	if err != nil {
 		t.Fatal(err)
 	}
 
@@ -672,7 +710,9 @@ GetData {
 }
 `
 	mainPath := filepath.Join(tmpDir, "main.scaf")
-	if err := os.WriteFile(mainPath, []byte(mainContent), 0o600); err != nil {
+
+	err = os.WriteFile(mainPath, []byte(mainContent), 0o600)
+	if err != nil {
 		t.Fatal(err)
 	}
 

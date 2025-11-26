@@ -3,6 +3,7 @@ package scaf
 import (
 	"io"
 	"strings"
+	"sync"
 	"unicode"
 	"unicode/utf8"
 
@@ -64,6 +65,10 @@ func (e *LexerError) withChar(ch rune) *LexerError {
 // dslDefinition implements lexer.Definition for the scaf DSL.
 type dslDefinition struct {
 	symbols map[string]lexer.TokenType
+	// lastTrivia holds trivia from the most recent lex operation.
+	lastTrivia *TriviaList
+	// mu protects lastTrivia for concurrent access.
+	mu sync.Mutex
 }
 
 // newDSLLexer creates a new lexer Definition for the scaf DSL.
@@ -114,32 +119,57 @@ func (d *dslDefinition) Lex(filename string, r io.Reader) (lexer.Lexer, error) {
 //
 //nolint:ireturn // Required by participle's lexer.BytesDefinition interface.
 func (d *dslDefinition) LexBytes(filename string, data []byte) (lexer.Lexer, error) {
-	return newLexerState(filename, string(data)), nil
+	trivia := &TriviaList{}
+	d.lastTrivia = trivia
+
+	return newLexerState(filename, string(data), trivia), nil
 }
 
 // LexString implements lexer.StringDefinition for efficiency.
 //
 //nolint:ireturn // Required by participle's lexer.StringDefinition interface.
 func (d *dslDefinition) LexString(filename string, input string) (lexer.Lexer, error) {
-	return newLexerState(filename, input), nil
+	trivia := &TriviaList{}
+	d.lastTrivia = trivia
+
+	return newLexerState(filename, input, trivia), nil
+}
+
+// Trivia returns the collected trivia from the last lex operation.
+// Note: For thread-safe access, use Lock/Unlock around Parse and Trivia calls.
+func (d *dslDefinition) Trivia() *TriviaList {
+	return d.lastTrivia
+}
+
+// Lock acquires the mutex for thread-safe parse+trivia access.
+func (d *dslDefinition) Lock() {
+	d.mu.Lock()
+}
+
+// Unlock releases the mutex.
+func (d *dslDefinition) Unlock() {
+	d.mu.Unlock()
 }
 
 // lexerState holds the state for lexing.
 type lexerState struct {
-	filename string
-	input    string
-	offset   int
-	line     int
-	col      int
+	filename      string
+	input         string
+	offset        int
+	line          int
+	col           int
+	trivia        *TriviaList
+	lastWasNewline bool // tracks if we just saw a blank line (for detached comments)
 }
 
-func newLexerState(filename, input string) *lexerState {
+func newLexerState(filename, input string, trivia *TriviaList) *lexerState {
 	return &lexerState{
 		filename: filename,
 		input:    input,
 		offset:   0,
 		line:     1,
 		col:      1,
+		trivia:   trivia,
 	}
 }
 
@@ -152,23 +182,51 @@ func (l *lexerState) Next() (lexer.Token, error) {
 	start := l.pos()
 	r := l.peek()
 
-	// Whitespace
+	// Whitespace - track blank lines for "detached" comment detection
 	if isSpace(r) {
+		newlineCount := 0
+
 		for !l.eof() && isSpace(l.peek()) {
+			if l.peek() == '\n' {
+				newlineCount++
+			}
+
 			l.advance()
 		}
+		// Two or more newlines means there was a blank line
+		l.lastWasNewline = newlineCount >= 2
 
 		return l.token(tWhitespace, start), nil
 	}
 
-	// Comment
+	// Comment - collect as trivia
 	if r == '/' && l.peekAt(1) == '/' {
 		for !l.eof() && l.peek() != '\n' {
 			l.advance()
 		}
 
-		return l.token(tComment, start), nil
+		tok := l.token(tComment, start)
+
+		// Record in trivia list
+		if l.trivia != nil {
+			l.trivia.Add(Trivia{
+				Type: TriviaComment,
+				Text: tok.Value,
+				Span: Span{
+					Start: start,
+					End:   l.pos(),
+				},
+				HasNewlineBefore: l.lastWasNewline,
+			})
+		}
+
+		l.lastWasNewline = false
+
+		return tok, nil
 	}
+
+	// Reset blank line tracker for non-trivia tokens
+	l.lastWasNewline = false
 
 	// Raw string
 	if r == '`' {

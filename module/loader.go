@@ -56,7 +56,7 @@ func (l *Loader) LoadFrom(path string, from *Module) (*Module, error) {
 
 // resolvePath resolves a path to an absolute path.
 // If basePath is provided, relative paths are resolved from its directory.
-func (l *Loader) resolvePath(path, basePath string) (string, error) {
+func (l *Loader) resolvePath(path, basePath string) (string, error) { //nolint:funcorder
 	// If path is already absolute, use it directly
 	if filepath.IsAbs(path) {
 		return l.normalizeScafPath(path)
@@ -81,12 +81,13 @@ func (l *Loader) resolvePath(path, basePath string) (string, error) {
 }
 
 // normalizeScafPath ensures the path has .scaf extension and exists.
-func (l *Loader) normalizeScafPath(path string) (string, error) {
+func (l *Loader) normalizeScafPath(path string) (string, error) { //nolint:funcorder
 	// Clean the path
 	path = filepath.Clean(path)
 
 	// Try the path as-is first
-	if _, err := os.Stat(path); err == nil {
+	_, err := os.Stat(path)
+	if err == nil {
 		return filepath.Abs(path)
 	}
 
@@ -115,21 +116,24 @@ func (l *Loader) normalizeScafPath(path string) (string, error) {
 // tryExtensions tries to find a file with the given extension.
 func tryExtensions(path, ext string) string {
 	withExt := path + ext
-	if _, err := os.Stat(withExt); err == nil {
+
+	_, err := os.Stat(withExt)
+	if err == nil {
 		return withExt
 	}
+
 	return ""
 }
 
 // loadAbsolute loads a module from an absolute path.
-func (l *Loader) loadAbsolute(absPath, importedFrom string) (*Module, error) {
+func (l *Loader) loadAbsolute(absPath, importedFrom string) (*Module, error) { //nolint:funcorder
 	// Check cache
 	if mod, ok := l.cache[absPath]; ok {
 		return mod, nil
 	}
 
 	// Read file
-	data, err := os.ReadFile(absPath)
+	data, err := os.ReadFile(absPath) //nolint:gosec // G304: file path from user input is expected
 	if err != nil {
 		return nil, &LoadError{
 			Path:         absPath,
