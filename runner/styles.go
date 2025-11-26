@@ -89,9 +89,9 @@ func DefaultStyles() *Styles {
 		SymbolSlow:    "⏱",
 		SymbolPointer: "❯",
 
-		// Tree characters for nested output
+		// Tree characters for nested output (rounded style)
 		TreeMiddle: "├─",
-		TreeEnd:    "└─",
+		TreeEnd:    "╰─",
 		TreeBar:    "│ ",
 
 		// Progress bar characters

@@ -1,0 +1,66 @@
+TUI Design for scaf test
+========================
+
+FINAL OUTPUT FORMAT
+───────────────────
+
+scaf test  FAIL
+[157ms] ██████████████████████████████ 19/19
+
+all_features.cypher.scaf
+├─ ✗ GetUser
+│ ├─ ✓ existing users
+│ │ ├─ ✓ finds Alice by id  [1ms]
+│ │ ╰─ ✓ finds Bob by id  [1ms]
+│ ├─ ✓ edge cases
+│ │ ├─ ✓ user with null age  [1ms]
+│ │ ╰─ ✓ non-existent user returns null  [1ms]
+│ ╰─ ✗ expected failures
+│   ├─ ✗ wrong name fails  [1ms]
+│   │    u.name: expected NotAlice, got Alice
+│   ╰─ ✗ expecting non-null when null fails  [1ms]
+│        u.age: expected 99, got <nil>
+╰─ ✓ CreatePost
+  ├─ ✓ creates a post  [1ms]
+  ╰─ ✓ post creation rolls back  [1ms]
+
+simple.scaf
+├─ ✗ GetUser
+│ ├─ ✓ finds Alice  [1ms]
+│ ├─ ✓ finds Bob  [1ms]
+│ ├─ ✓ non-existent user returns null  [1ms]
+│ ╰─ ✗ expected failures
+│   ├─ ✗ wrong name  [1ms]
+│   │    u.name: expected Bruh, got Alice
+│   ╰─ ✗ wrong age type  [1ms]
+│        u.age: expected thirty, got 30
+╰─ ✓ CountUsers
+  ├─ ✓ counts all users  [1ms]
+  ├─ ✓ test isolation - temp user rolls back  [1ms]
+  ╰─ ✓ still 2 after rollback  [1ms]
+
+  15 passed │ 4 failed (19 total)
+
+
+STATUS SYMBOLS
+──────────────
+⋯  pending (dim gray)
+◐  running (cyan, animated spinner)
+✓  passed  (green)
+✗  failed  (red)
+↓  skipped (yellow)
+
+
+GROUP STATUS INHERITANCE
+────────────────────────
+- If ANY child is running → group shows ◐
+- If ANY child failed → group shows ✗
+- If ALL children passed → group shows ✓
+- If ALL children pending → group shows ⋯
+
+
+TREE CHARACTERS
+───────────────
+├─  branch (middle child)
+╰─  branch (last child)
+│   vertical continuation
