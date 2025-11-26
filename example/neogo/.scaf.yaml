@@ -1,0 +1,2 @@
+dialect: cypher
+schema: .scaf-schema.json

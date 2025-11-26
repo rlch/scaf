@@ -1,4 +1,4 @@
-# github.com/alecthomas/participle/v2 v2.1.4
+# github.com/alecthomas/participle/v2 v2.1.4 => ../participle
 ## explicit; go 1.18
 github.com/alecthomas/participle/v2
 github.com/alecthomas/participle/v2/lexer
@@ -30,6 +30,12 @@ github.com/charmbracelet/x/cellbuf
 # github.com/charmbracelet/x/term v0.2.1
 ## explicit; go 1.18
 github.com/charmbracelet/x/term
+# github.com/davecgh/go-spew v1.1.1
+## explicit
+# github.com/dlclark/regexp2 v1.11.5
+## explicit; go 1.13
+github.com/dlclark/regexp2
+github.com/dlclark/regexp2/syntax
 # github.com/erikgeiser/coninput v0.0.0-20211004153227-1c3628e74d0f
 ## explicit; go 1.16
 github.com/erikgeiser/coninput
@@ -62,6 +68,9 @@ github.com/google/go-cmp/cmp/internal/diff
 github.com/google/go-cmp/cmp/internal/flags
 github.com/google/go-cmp/cmp/internal/function
 github.com/google/go-cmp/cmp/internal/value
+# github.com/iancoleman/strcase v0.3.0
+## explicit; go 1.16
+github.com/iancoleman/strcase
 # github.com/lucasb-eyer/go-colorful v1.2.0
 ## explicit; go 1.12
 github.com/lucasb-eyer/go-colorful
@@ -111,9 +120,20 @@ github.com/neo4j/neo4j-go-driver/v5/neo4j/internal/telemetry
 github.com/neo4j/neo4j-go-driver/v5/neo4j/internal/time
 github.com/neo4j/neo4j-go-driver/v5/neo4j/log
 github.com/neo4j/neo4j-go-driver/v5/neo4j/notifications
+# github.com/oklog/ulid/v2 v2.1.0
+## explicit; go 1.15
+github.com/oklog/ulid/v2
+# github.com/pmezard/go-difflib v1.0.0
+## explicit
 # github.com/rivo/uniseg v0.4.7
 ## explicit; go 1.18
 github.com/rivo/uniseg
+# github.com/rlch/neogo v0.0.0 => ../neogo
+## explicit; go 1.24.0
+github.com/rlch/neogo
+github.com/rlch/neogo/builder
+github.com/rlch/neogo/internal
+github.com/rlch/neogo/internal/codec
 # github.com/segmentio/asm v1.1.3
 ## explicit; go 1.17
 github.com/segmentio/asm/ascii
@@ -130,6 +150,8 @@ github.com/segmentio/asm/keyset
 github.com/segmentio/encoding/ascii
 github.com/segmentio/encoding/iso8601
 github.com/segmentio/encoding/json
+# github.com/stretchr/testify v1.11.1
+## explicit; go 1.17
 # github.com/urfave/cli/v3 v3.6.1
 ## explicit; go 1.22
 github.com/urfave/cli/v3
@@ -166,6 +188,9 @@ go.uber.org/zap/zapcore
 ## explicit; go 1.20
 golang.org/x/exp/constraints
 golang.org/x/exp/slices
+# golang.org/x/sync v0.16.0
+## explicit; go 1.23.0
+golang.org/x/sync/semaphore
 # golang.org/x/sys v0.37.0
 ## explicit; go 1.24.0
 golang.org/x/sys/cpu
@@ -177,3 +202,5 @@ golang.org/x/text/transform
 # gopkg.in/yaml.v3 v3.0.1
 ## explicit
 gopkg.in/yaml.v3
+# github.com/rlch/neogo => ../neogo
+# github.com/alecthomas/participle/v2 => ../participle

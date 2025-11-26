@@ -166,6 +166,85 @@ Q {
 	}
 }
 
+func TestAnalyzer_PartialParsing(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name        string
+		input       string
+		wantQueries []string // Queries should be extracted even with parse errors
+		wantImports []string // Imports should be extracted even with parse errors
+		wantError   bool     // Whether we expect a parse error
+	}{
+		{
+			name: "error after valid queries",
+			input: `
+query GetUser ` + "`MATCH (u:User) RETURN u`" + `
+query GetPost ` + "`MATCH (p:Post) RETURN p`" + `
+
+GetUser {
+	test "broken" {
+		$id: 1
+		// Missing closing brace
+`,
+			wantQueries: []string{"GetUser", "GetPost"},
+			wantError:   true,
+		},
+		{
+			name: "error after valid imports and queries",
+			input: `
+import fixtures "./fixtures"
+import utils "./utils"
+
+query Q ` + "`Q`" + `
+
+Q {
+	test "incomplete
+`,
+			wantQueries: []string{"Q"},
+			wantImports: []string{"fixtures", "utils"},
+			wantError:   true,
+		},
+		{
+			name: "mid-query error still gets earlier queries",
+			input: "query Valid1 `Q1`\nquery Valid2 `Q2`\nquery Broken `incomplete",
+			wantQueries: []string{"Valid1", "Valid2"},
+			wantError:   true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			analyzer := analysis.NewAnalyzer(nil)
+			result := analyzer.Analyze("test.scaf", []byte(tt.input))
+
+			// Verify parse error presence
+			if tt.wantError && result.ParseError == nil {
+				t.Error("expected parse error, got none")
+			}
+			if !tt.wantError && result.ParseError != nil {
+				t.Errorf("unexpected parse error: %v", result.ParseError)
+			}
+
+			// Check that queries were still extracted despite parse error
+			for _, name := range tt.wantQueries {
+				if _, ok := result.Symbols.Queries[name]; !ok {
+					t.Errorf("missing query %q (should be extracted from partial AST)", name)
+				}
+			}
+
+			// Check that imports were still extracted despite parse error
+			for _, alias := range tt.wantImports {
+				if _, ok := result.Symbols.Imports[alias]; !ok {
+					t.Errorf("missing import %q (should be extracted from partial AST)", alias)
+				}
+			}
+		})
+	}
+}
+
 func TestAnalyzer_ExtractQueryParams(t *testing.T) {
 	t.Parallel()
 

@@ -1,0 +1,117 @@
+{
+  "models": {
+    "ActedIn": {
+      "name": "ActedIn",
+      "fields": [
+        {
+          "name": "roles",
+          "type": "[]string",
+          "required": true
+        }
+      ]
+    },
+    "Directed": {
+      "name": "Directed"
+    },
+    "Follows": {
+      "name": "Follows",
+      "fields": [
+        {
+          "name": "since",
+          "type": "int",
+          "required": true
+        }
+      ]
+    },
+    "Movie": {
+      "name": "Movie",
+      "fields": [
+        {
+          "name": "id",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "title",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "released",
+          "type": "int",
+          "required": true
+        },
+        {
+          "name": "tagline",
+          "type": "string",
+          "required": true
+        }
+      ]
+    },
+    "Person": {
+      "name": "Person",
+      "fields": [
+        {
+          "name": "id",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "name",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "born",
+          "type": "int",
+          "required": true
+        }
+      ],
+      "relationships": [
+        {
+          "name": "ActedIn",
+          "relType": "ACTED_IN",
+          "target": "Movie",
+          "many": true,
+          "direction": "outgoing"
+        },
+        {
+          "name": "Directed",
+          "relType": "DIRECTED",
+          "target": "Movie",
+          "many": true,
+          "direction": "outgoing"
+        },
+        {
+          "name": "Reviewed",
+          "relType": "REVIEWED",
+          "target": "Movie",
+          "many": true,
+          "direction": "outgoing"
+        },
+        {
+          "name": "Follows",
+          "relType": "FOLLOWS",
+          "target": "Person",
+          "many": true,
+          "direction": "outgoing"
+        }
+      ]
+    },
+    "Review": {
+      "name": "Review",
+      "fields": [
+        {
+          "name": "summary",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "rating",
+          "type": "int",
+          "required": true
+        }
+      ]
+    }
+  }
+}

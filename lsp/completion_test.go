@@ -692,6 +692,157 @@ GetUser {
 	}
 }
 
+func TestServer_Completion_SetupWithPrefix(t *testing.T) {
+	t.Parallel()
+
+	// This test simulates the EXACT scenario that fails in real usage:
+	// User types "setup fi" and expects to see "fixtures" filtered
+	server, _ := newTestServer(t)
+	ctx := context.Background()
+
+	_, _ = server.Initialize(ctx, &protocol.InitializeParams{})
+	_ = server.Initialized(ctx, &protocol.InitializedParams{})
+
+	// First, open a valid document
+	validContent := `import fixtures "../shared/fixtures"
+
+query GetUser ` + "`MATCH (u:User) RETURN u`" + `
+
+GetUser {
+	test "t" {
+	}
+}
+`
+	_ = server.DidOpen(ctx, &protocol.DidOpenTextDocumentParams{
+		TextDocument: protocol.TextDocumentItem{
+			URI:     "file:///test.scaf",
+			Version: 1,
+			Text:    validContent,
+		},
+	})
+
+	// Now simulate typing "setup fi" inside the test
+	invalidContent := `import fixtures "../shared/fixtures"
+
+query GetUser ` + "`MATCH (u:User) RETURN u`" + `
+
+GetUser {
+	test "t" {
+		setup fi
+	}
+}
+`
+	_ = server.DidChange(ctx, &protocol.DidChangeTextDocumentParams{
+		TextDocument: protocol.VersionedTextDocumentIdentifier{
+			TextDocumentIdentifier: protocol.TextDocumentIdentifier{URI: "file:///test.scaf"},
+			Version:                2,
+		},
+		ContentChanges: []protocol.TextDocumentContentChangeEvent{
+			{Text: invalidContent},
+		},
+	})
+
+	// Request completion after "setup fi" (line 6, character 10)
+	// Line 6 is: "\t\tsetup fi"
+	// Character 10 is at the end after "fi"
+	result, err := server.Completion(ctx, &protocol.CompletionParams{
+		TextDocumentPositionParams: protocol.TextDocumentPositionParams{
+			TextDocument: protocol.TextDocumentIdentifier{URI: "file:///test.scaf"},
+			Position:     protocol.Position{Line: 6, Character: 10},
+		},
+	})
+	if err != nil {
+		t.Fatalf("Completion() error: %v", err)
+	}
+
+	if result == nil {
+		t.Fatal("Expected completion result")
+	}
+
+	// Debug
+	t.Logf("Got %d completion items", len(result.Items))
+	for _, item := range result.Items {
+		t.Logf("  Item: %s (kind=%v)", item.Label, item.Kind)
+	}
+
+	// Should offer "fixtures" import alias (filtered by prefix "fi")
+	found := false
+	for _, item := range result.Items {
+		if item.Label == "fixtures" && item.Kind == protocol.CompletionItemKindModule {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Error("Expected 'fixtures' import alias in completions when typing 'setup fi'")
+	}
+}
+
+func TestServer_Completion_SetupWithPrefix_FileNeverValid(t *testing.T) {
+	t.Parallel()
+
+	// This test simulates a scenario where the file was NEVER valid:
+	// User opens a file that already has parse errors, no LastValidAnalysis
+	server, _ := newTestServer(t)
+	ctx := context.Background()
+
+	_, _ = server.Initialize(ctx, &protocol.InitializeParams{})
+	_ = server.Initialized(ctx, &protocol.InitializedParams{})
+
+	// Open a file that's already invalid (no LastValidAnalysis will be stored)
+	invalidContent := `import fixtures "../shared/fixtures"
+
+query GetUser ` + "`MATCH (u:User) RETURN u`" + `
+
+GetUser {
+	test "t" {
+		setup fi
+	}
+}
+`
+	_ = server.DidOpen(ctx, &protocol.DidOpenTextDocumentParams{
+		TextDocument: protocol.TextDocumentItem{
+			URI:     "file:///test.scaf",
+			Version: 1,
+			Text:    invalidContent,
+		},
+	})
+
+	// Request completion after "setup fi" (line 6, character 10)
+	result, err := server.Completion(ctx, &protocol.CompletionParams{
+		TextDocumentPositionParams: protocol.TextDocumentPositionParams{
+			TextDocument: protocol.TextDocumentIdentifier{URI: "file:///test.scaf"},
+			Position:     protocol.Position{Line: 6, Character: 10},
+		},
+	})
+	if err != nil {
+		t.Fatalf("Completion() error: %v", err)
+	}
+
+	if result == nil {
+		t.Fatal("Expected completion result")
+	}
+
+	// Debug
+	t.Logf("Got %d completion items (file never valid)", len(result.Items))
+	for _, item := range result.Items {
+		t.Logf("  Item: %s (kind=%v)", item.Label, item.Kind)
+	}
+
+	// Should still offer "fixtures" import alias even when file never parsed correctly
+	// This requires the partial analysis to still extract imports
+	found := false
+	for _, item := range result.Items {
+		if item.Label == "fixtures" && item.Kind == protocol.CompletionItemKindModule {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Error("Expected 'fixtures' import alias in completions even when file never valid")
+	}
+}
+
 func TestServer_Completion_SetupImportAlias_InTest(t *testing.T) {
 	t.Parallel()
 

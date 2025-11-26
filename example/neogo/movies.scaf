@@ -1,0 +1,43 @@
+-- Example scaf file using neogo models from the movies database
+
+-- Query to find actors and their movies
+query FindActors `
+  MATCH (p:Person)-[r:ACTED_IN]->(m:Movie)
+  WHERE p.name = $name
+  RETURN p.name, m.title, r.roles
+`
+
+FindActors {
+  test "finds Tom Hanks movies" {
+    $name: "Tom Hanks"
+    p.name: "Tom Hanks"
+    m.title: "Forrest Gump"
+  }
+}
+
+-- Query to find directors
+query FindDirectors `
+  MATCH (p:Person)-[:DIRECTED]->(m:Movie)
+  RETURN p.name, m.title
+`
+
+FindDirectors {
+  test "finds directors" {
+    p.name: "Robert Zemeckis"
+    m.title: "Forrest Gump"
+  }
+}
+
+-- Query to find reviews
+query FindReviews `
+  MATCH (p:Person)-[r:REVIEWED]->(m:Movie)
+  WHERE m.title = $title
+  RETURN p.name, r.summary, r.rating
+`
+
+FindReviews {
+  test "finds movie reviews" {
+    $title: "The Matrix"
+    r.rating: 5
+  }
+}
