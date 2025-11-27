@@ -11,14 +11,18 @@ import (
 
 // ignorePositions is a cmp option that ignores lexer.Position and Token fields in comparisons.
 // This allows tests to compare AST structure without specifying exact source positions or tokens.
+// Also ignores Close fields (captured closing braces) and recovery metadata fields.
 var ignorePositions = cmp.Options{
 	cmpopts.IgnoreTypes(lexer.Position{}, lexer.Token{}, []lexer.Token{}),
 	cmpopts.IgnoreFields(scaf.Suite{}, "LeadingComments", "TrailingComment"),
 	cmpopts.IgnoreFields(scaf.Import{}, "LeadingComments", "TrailingComment"),
 	cmpopts.IgnoreFields(scaf.Query{}, "LeadingComments", "TrailingComment"),
-	cmpopts.IgnoreFields(scaf.QueryScope{}, "LeadingComments", "TrailingComment"),
-	cmpopts.IgnoreFields(scaf.Group{}, "LeadingComments", "TrailingComment"),
-	cmpopts.IgnoreFields(scaf.Test{}, "LeadingComments", "TrailingComment"),
+	cmpopts.IgnoreFields(scaf.QueryScope{}, "LeadingComments", "TrailingComment", "Close", "Recovered", "RecoveredSpan", "RecoveredEnd", "SkippedTokens"),
+	cmpopts.IgnoreFields(scaf.Group{}, "LeadingComments", "TrailingComment", "Close", "Recovered", "RecoveredSpan", "RecoveredEnd", "SkippedTokens"),
+	cmpopts.IgnoreFields(scaf.Test{}, "LeadingComments", "TrailingComment", "Close", "Recovered", "RecoveredSpan", "RecoveredEnd", "SkippedTokens"),
+	cmpopts.IgnoreFields(scaf.Assert{}, "Close", "Recovered", "RecoveredSpan", "RecoveredEnd", "SkippedTokens"),
+	cmpopts.IgnoreFields(scaf.SetupClause{}, "Recovered", "RecoveredSpan", "RecoveredEnd", "SkippedTokens"),
+	cmpopts.IgnoreFields(scaf.NamedSetup{}, "Recovered", "RecoveredSpan", "RecoveredEnd", "SkippedTokens"),
 }
 
 func ptr[T any](v T) *T {
@@ -1014,3 +1018,357 @@ func TestParseQueryAssert(t *testing.T) {
 
 // TODO: TestParseComputedField - ComputedFields feature removed temporarily
 // Will be re-added with proper syntax disambiguation (e.g., "mock u { field: expr }")
+
+func TestParseWithRecovery(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name           string
+		input          string
+		expectError    bool
+		checkAST       func(t *testing.T, suite *scaf.Suite)
+	}{
+		{
+			name: "valid input with recovery enabled",
+			input: `
+				query Q ` + "`Q`" + `
+				Q {
+					test "t" {
+						$id: 1
+					}
+				}
+			`,
+			expectError: false,
+			checkAST: func(t *testing.T, suite *scaf.Suite) {
+				if len(suite.Scopes) != 1 {
+					t.Errorf("Expected 1 scope, got %d", len(suite.Scopes))
+				}
+				if len(suite.Scopes[0].Items) != 1 {
+					t.Errorf("Expected 1 item, got %d", len(suite.Scopes[0].Items))
+				}
+			},
+		},
+		// Note: Recovery only works for parse errors, not lexer errors.
+		// Unterminated strings cause lexer errors before parsing begins.
+		// Test cases below use syntactically invalid (but lexically valid) input.
+		{
+			name: "incomplete setup - missing close paren",
+			input: `
+				query Q ` + "`Q`" + `
+				Q {
+					setup Func(
+					test "t" {}
+				}
+			`,
+			expectError: true,
+			checkAST: func(t *testing.T, suite *scaf.Suite) {
+				// Should still have partial AST
+				if suite == nil {
+					t.Fatal("Expected partial AST, got nil")
+				}
+				if len(suite.Queries) != 1 {
+					t.Errorf("Expected 1 query, got %d", len(suite.Queries))
+				}
+				if len(suite.Scopes) != 1 {
+					t.Errorf("Expected 1 scope, got %d", len(suite.Scopes))
+				}
+			},
+		},
+		{
+			name: "incomplete test - missing closing brace",
+			input: `
+				query Q ` + "`Q`" + `
+				Q {
+					test "unclosed" {
+						$id: 1
+			`,
+			expectError: true,
+			checkAST: func(t *testing.T, suite *scaf.Suite) {
+				// Should still have partial AST
+				if suite == nil {
+					t.Fatal("Expected partial AST, got nil")
+				}
+				if len(suite.Queries) != 1 {
+					t.Errorf("Expected 1 query, got %d", len(suite.Queries))
+				}
+			},
+		},
+		{
+			name: "multiple scopes with error in second",
+			input: `
+				query Q1 ` + "`Q1`" + `
+				query Q2 ` + "`Q2`" + `
+				Q1 {
+					test "valid" {}
+				}
+				Q2 {
+					setup Func(
+					test "after error" {}
+				}
+			`,
+			expectError: true,
+			checkAST: func(t *testing.T, suite *scaf.Suite) {
+				if suite == nil {
+					t.Fatal("Expected partial AST, got nil")
+				}
+				if len(suite.Queries) != 2 {
+					t.Errorf("Expected 2 queries, got %d", len(suite.Queries))
+				}
+				// Both scopes should be present
+				if len(suite.Scopes) != 2 {
+					t.Errorf("Expected 2 scopes, got %d", len(suite.Scopes))
+				}
+			},
+		},
+		{
+			name: "extra token after setup",
+			input: `
+				query Q ` + "`Q`" + `
+				Q {
+					setup ` + "`Q`" + ` extra
+					test "t" {}
+				}
+			`,
+			expectError: true,
+			checkAST: func(t *testing.T, suite *scaf.Suite) {
+				if suite == nil {
+					t.Fatal("Expected partial AST, got nil")
+				}
+				if len(suite.Queries) != 1 {
+					t.Errorf("Expected 1 query, got %d", len(suite.Queries))
+				}
+			},
+		},
+		{
+			name: "empty setup before closing brace",
+			input: `
+				query Q ` + "`Q`" + `
+				Q {
+					setup 
+				}
+			`,
+			expectError: true,
+			checkAST: func(t *testing.T, suite *scaf.Suite) {
+				if suite == nil {
+					t.Fatal("Expected partial AST, got nil")
+				}
+				if len(suite.Scopes) != 1 {
+					t.Fatalf("Expected 1 scope, got %d", len(suite.Scopes))
+				}
+				scope := suite.Scopes[0]
+				// ViaParser should have recovered the empty setup
+				if scope.Setup == nil {
+					t.Fatal("Expected scope.Setup to be non-nil (from ViaParser)")
+				}
+				if !scope.Setup.Recovered {
+					t.Error("Expected scope.Setup.Recovered = true")
+				}
+				// The scope should still be complete (has closing brace)
+				if !scope.IsComplete() {
+					t.Error("Expected scope.IsComplete() = true")
+				}
+			},
+		},
+		{
+			name: "empty setup before test keyword",
+			input: `
+				query Q ` + "`Q`" + `
+				Q {
+					setup 
+					test "t" {}
+				}
+			`,
+			expectError: true,
+			checkAST: func(t *testing.T, suite *scaf.Suite) {
+				if suite == nil {
+					t.Fatal("Expected partial AST, got nil")
+				}
+				if len(suite.Scopes) != 1 {
+					t.Fatalf("Expected 1 scope, got %d", len(suite.Scopes))
+				}
+				scope := suite.Scopes[0]
+				// ViaParser should have recovered the empty setup
+				if scope.Setup == nil {
+					t.Fatal("Expected scope.Setup to be non-nil (from ViaParser)")
+				}
+				if !scope.Setup.Recovered {
+					t.Error("Expected scope.Setup.Recovered = true")
+				}
+				// The test should still be parsed
+				if len(scope.Items) != 1 {
+					t.Errorf("Expected 1 item in scope, got %d", len(scope.Items))
+				}
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			suite, err := scaf.ParseWithRecovery([]byte(tt.input), true)
+
+			if tt.expectError && err == nil {
+				t.Error("Expected error, got nil")
+			}
+			if !tt.expectError && err != nil {
+				t.Errorf("Unexpected error: %v", err)
+			}
+
+			if tt.checkAST != nil {
+				tt.checkAST(t, suite)
+			}
+		})
+	}
+}
+
+func TestIsComplete(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		input    string
+		checkFn  func(t *testing.T, suite *scaf.Suite)
+	}{
+		{
+			name: "complete test has Close",
+			input: `
+				query Q ` + "`Q`" + `
+				Q {
+					test "t" {}
+				}
+			`,
+			checkFn: func(t *testing.T, suite *scaf.Suite) {
+				test := suite.Scopes[0].Items[0].Test
+				if test == nil {
+					t.Fatal("Expected test, got nil")
+				}
+				if !test.IsComplete() {
+					t.Error("Expected test.IsComplete() = true")
+				}
+				if test.Close != "}" {
+					t.Errorf("Expected test.Close = '}', got %q", test.Close)
+				}
+			},
+		},
+		{
+			name: "complete group has Close",
+			input: `
+				query Q ` + "`Q`" + `
+				Q {
+					group "g" {
+						test "t" {}
+					}
+				}
+			`,
+			checkFn: func(t *testing.T, suite *scaf.Suite) {
+				group := suite.Scopes[0].Items[0].Group
+				if group == nil {
+					t.Fatal("Expected group, got nil")
+				}
+				if !group.IsComplete() {
+					t.Error("Expected group.IsComplete() = true")
+				}
+				if group.Close != "}" {
+					t.Errorf("Expected group.Close = '}', got %q", group.Close)
+				}
+			},
+		},
+		{
+			name: "complete assert has Close",
+			input: `
+				query Q ` + "`Q`" + `
+				Q {
+					test "t" {
+						assert { true }
+					}
+				}
+			`,
+			checkFn: func(t *testing.T, suite *scaf.Suite) {
+				test := suite.Scopes[0].Items[0].Test
+				if len(test.Asserts) != 1 {
+					t.Fatalf("Expected 1 assert, got %d", len(test.Asserts))
+				}
+				assert := test.Asserts[0]
+				if !assert.IsComplete() {
+					t.Error("Expected assert.IsComplete() = true")
+				}
+				if assert.Close != "}" {
+					t.Errorf("Expected assert.Close = '}', got %q", assert.Close)
+				}
+			},
+		},
+		{
+			name: "complete QueryScope has Close",
+			input: `
+				query Q ` + "`Q`" + `
+				Q {
+					test "t" {}
+				}
+			`,
+			checkFn: func(t *testing.T, suite *scaf.Suite) {
+				scope := suite.Scopes[0]
+				if !scope.IsComplete() {
+					t.Error("Expected scope.IsComplete() = true")
+				}
+				if scope.Close != "}" {
+					t.Errorf("Expected scope.Close = '}', got %q", scope.Close)
+				}
+			},
+		},
+		{
+			name: "complete SetupClause with inline",
+			input: `
+				query Q ` + "`Q`" + `
+				Q {
+					setup ` + "`CREATE (:N)`" + `
+					test "t" {}
+				}
+			`,
+			checkFn: func(t *testing.T, suite *scaf.Suite) {
+				setup := suite.Scopes[0].Setup
+				if setup == nil {
+					t.Fatal("Expected setup, got nil")
+				}
+				if !setup.IsComplete() {
+					t.Error("Expected setup.IsComplete() = true")
+				}
+			},
+		},
+		{
+			name: "complete NamedSetup",
+			input: `
+				query Q ` + "`Q`" + `
+				Q {
+					setup Func()
+					test "t" {}
+				}
+			`,
+			checkFn: func(t *testing.T, suite *scaf.Suite) {
+				setup := suite.Scopes[0].Setup
+				if setup == nil || setup.Named == nil {
+					t.Fatal("Expected named setup")
+				}
+				if !setup.Named.IsComplete() {
+					t.Error("Expected setup.Named.IsComplete() = true")
+				}
+				if setup.Named.Name != "Func" {
+					t.Errorf("Expected setup.Named.Name = 'Func', got %q", setup.Named.Name)
+				}
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			suite, err := scaf.Parse([]byte(tt.input))
+			if err != nil {
+				t.Fatalf("Parse error: %v", err)
+			}
+
+			tt.checkFn(t, suite)
+		})
+	}
+}

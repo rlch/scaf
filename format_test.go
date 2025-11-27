@@ -10,15 +10,18 @@ import (
 	"github.com/rlch/scaf"
 )
 
-// ignorePos ignores lexer.Position, Tokens, and comment fields in comparisons.
+// ignorePos ignores lexer.Position, Tokens, comment fields, Close fields, and recovery metadata in comparisons.
 var ignorePos = cmp.Options{
 	cmpopts.IgnoreTypes(lexer.Position{}, lexer.Token{}, []lexer.Token{}),
 	cmpopts.IgnoreFields(scaf.Suite{}, "LeadingComments", "TrailingComment"),
 	cmpopts.IgnoreFields(scaf.Import{}, "LeadingComments", "TrailingComment"),
 	cmpopts.IgnoreFields(scaf.Query{}, "LeadingComments", "TrailingComment"),
-	cmpopts.IgnoreFields(scaf.QueryScope{}, "LeadingComments", "TrailingComment"),
-	cmpopts.IgnoreFields(scaf.Group{}, "LeadingComments", "TrailingComment"),
-	cmpopts.IgnoreFields(scaf.Test{}, "LeadingComments", "TrailingComment"),
+	cmpopts.IgnoreFields(scaf.QueryScope{}, "LeadingComments", "TrailingComment", "Close", "Recovered", "RecoveredSpan", "RecoveredEnd", "SkippedTokens"),
+	cmpopts.IgnoreFields(scaf.Group{}, "LeadingComments", "TrailingComment", "Close", "Recovered", "RecoveredSpan", "RecoveredEnd", "SkippedTokens"),
+	cmpopts.IgnoreFields(scaf.Test{}, "LeadingComments", "TrailingComment", "Close", "Recovered", "RecoveredSpan", "RecoveredEnd", "SkippedTokens"),
+	cmpopts.IgnoreFields(scaf.Assert{}, "Close", "Recovered", "RecoveredSpan", "RecoveredEnd", "SkippedTokens"),
+	cmpopts.IgnoreFields(scaf.SetupClause{}, "Recovered", "RecoveredSpan", "RecoveredEnd", "SkippedTokens"),
+	cmpopts.IgnoreFields(scaf.NamedSetup{}, "Recovered", "RecoveredSpan", "RecoveredEnd", "SkippedTokens"),
 }
 
 // inlineSetup creates a SetupClause with an inline query.

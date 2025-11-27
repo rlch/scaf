@@ -18,6 +18,24 @@ type Config struct {
 	// Per-pattern overrides (glob pattern -> dialect name)
 	// e.g., "integration/*.scaf": "postgres"
 	Files map[string]string `yaml:"files,omitempty"`
+
+	// Generate config for code generation
+	Generate GenerateConfig `yaml:"generate,omitempty"`
+}
+
+// GenerateConfig holds settings for the generate command.
+type GenerateConfig struct {
+	// Language target (e.g., "go")
+	Lang string `yaml:"lang,omitempty"`
+
+	// Database adapter (e.g., "neogo")
+	Adapter string `yaml:"adapter,omitempty"`
+
+	// Output directory for generated files
+	Out string `yaml:"out,omitempty"`
+
+	// Package name for generated code (Go-specific)
+	Package string `yaml:"package,omitempty"`
 }
 
 // DefaultConfigNames are the filenames we search for.

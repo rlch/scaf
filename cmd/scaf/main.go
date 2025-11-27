@@ -22,6 +22,7 @@ func main() {
 		Commands: []*cli.Command{
 			fmtCommand(),
 			testCommand(),
+			generateCommand(),
 		},
 	}
 

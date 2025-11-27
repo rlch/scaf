@@ -11,26 +11,47 @@ import (
 )
 
 // Token type constants - negative values as per participle convention.
+// Exported for use in recovery functions and completion logic.
 const (
-	tEOF        lexer.TokenType = lexer.EOF
-	tComment    lexer.TokenType = -(iota + 2) //nolint:mnd // participle convention
-	tRawString                                // backtick strings
-	tString                                   // quoted strings
-	tNumber                                   // all number formats
-	tIdent                                    // identifiers including $-prefixed
-	tOp                                       // operators
-	tDot                                      // .
-	tColon                                    // :
-	tComma                                    // ,
-	tSemi                                     // ;
-	tLParen                                   // (
-	tRParen                                   // )
-	tLBracket                                 // [
-	tRBracket                                 // ]
-	tLBrace                                   // {
-	tRBrace                                   // }
-	tWhitespace                               // spaces, tabs, newlines
+	TokenEOF        lexer.TokenType = lexer.EOF
+	TokenComment    lexer.TokenType = -(iota + 2) //nolint:mnd // participle convention
+	TokenRawString                                // backtick strings
+	TokenString                                   // quoted strings
+	TokenNumber                                   // all number formats
+	TokenIdent                                    // identifiers including $-prefixed
+	TokenOp                                       // operators
+	TokenDot                                      // .
+	TokenColon                                    // :
+	TokenComma                                    // ,
+	TokenSemi                                     // ;
+	TokenLParen                                   // (
+	TokenRParen                                   // )
+	TokenLBracket                                 // [
+	TokenRBracket                                 // ]
+	TokenLBrace                                   // {
+	TokenRBrace                                   // }
+	TokenWhitespace                               // spaces, tabs, newlines
+	// Structural keywords - distinct token types so grammar can distinguish from identifiers
+	TokenQuery    // query
+	TokenImport   // import
+	TokenSetup    // setup
+	TokenTeardown // teardown
+	TokenTest     // test
+	TokenGroup    // group
+	TokenAssert   // assert
 )
+
+// keywords maps keyword strings to their token types.
+// Only structural keywords are here - literals like true/false/null remain as identifiers.
+var keywords = map[string]lexer.TokenType{
+	"query":    TokenQuery,
+	"import":   TokenImport,
+	"setup":    TokenSetup,
+	"teardown": TokenTeardown,
+	"test":     TokenTest,
+	"group":    TokenGroup,
+	"assert":   TokenAssert,
+}
 
 // Lexer errors.
 var (
@@ -75,25 +96,33 @@ type dslDefinition struct {
 func newDSLLexer() *dslDefinition {
 	return &dslDefinition{
 		symbols: map[string]lexer.TokenType{
-			"EOF":        tEOF,
-			"Comment":    tComment,
-			"RawString":  tRawString,
-			"String":     tString,
-			"Number":     tNumber,
-			"Ident":      tIdent,
-			"Op":         tOp,
-			"Dot":        tDot,
-			"Colon":      tColon,
-			"Comma":      tComma,
-			"Semi":       tSemi,
-			"Whitespace": tWhitespace,
+			"EOF":        TokenEOF,
+			"Comment":    TokenComment,
+			"RawString":  TokenRawString,
+			"String":     TokenString,
+			"Number":     TokenNumber,
+			"Ident":      TokenIdent,
+			"Op":         TokenOp,
+			"Dot":        TokenDot,
+			"Colon":      TokenColon,
+			"Comma":      TokenComma,
+			"Semi":       TokenSemi,
+			"Whitespace": TokenWhitespace,
 			// Individual bracket tokens for grammar rules
-			"(": tLParen,
-			")": tRParen,
-			"[": tLBracket,
-			"]": tRBracket,
-			"{": tLBrace,
-			"}": tRBrace,
+			"(": TokenLParen,
+			")": TokenRParen,
+			"[": TokenLBracket,
+			"]": TokenRBracket,
+			"{": TokenLBrace,
+			"}": TokenRBrace,
+			// Structural keywords
+			"query":    TokenQuery,
+			"import":   TokenImport,
+			"setup":    TokenSetup,
+			"teardown": TokenTeardown,
+			"test":     TokenTest,
+			"group":    TokenGroup,
+			"assert":   TokenAssert,
 		},
 	}
 }
@@ -153,12 +182,12 @@ func (d *dslDefinition) Unlock() {
 
 // lexerState holds the state for lexing.
 type lexerState struct {
-	filename      string
-	input         string
-	offset        int
-	line          int
-	col           int
-	trivia        *TriviaList
+	filename       string
+	input          string
+	offset         int
+	line           int
+	col            int
+	trivia         *TriviaList
 	lastWasNewline bool // tracks if we just saw a blank line (for detached comments)
 }
 
@@ -196,7 +225,7 @@ func (l *lexerState) Next() (lexer.Token, error) {
 		// Two or more newlines means there was a blank line
 		l.lastWasNewline = newlineCount >= 2
 
-		return l.token(tWhitespace, start), nil
+		return l.token(TokenWhitespace, start), nil
 	}
 
 	// Comment - collect as trivia
@@ -205,7 +234,7 @@ func (l *lexerState) Next() (lexer.Token, error) {
 			l.advance()
 		}
 
-		tok := l.token(tComment, start)
+		tok := l.token(TokenComment, start)
 
 		// Record in trivia list
 		if l.trivia != nil {
@@ -243,7 +272,7 @@ func (l *lexerState) Next() (lexer.Token, error) {
 		return l.scanNumber(start), nil
 	}
 
-	// Identifier
+	// Identifier or keyword
 	if isIdentStart(r) {
 		l.advance() // consume first char
 
@@ -251,7 +280,14 @@ func (l *lexerState) Next() (lexer.Token, error) {
 			l.advance()
 		}
 
-		return l.token(tIdent, start), nil
+		tok := l.token(TokenIdent, start)
+		// Check if it's a keyword (but not $-prefixed identifiers)
+		if !strings.HasPrefix(tok.Value, "$") {
+			if kwType, isKeyword := keywords[tok.Value]; isKeyword {
+				tok.Type = kwType
+			}
+		}
+		return tok, nil
 	}
 
 	// Multi-character operators (check before single-char)
@@ -264,30 +300,30 @@ func (l *lexerState) Next() (lexer.Token, error) {
 
 	switch r {
 	case '.':
-		return l.token(tDot, start), nil
+		return l.token(TokenDot, start), nil
 	case ':':
-		return l.token(tColon, start), nil
+		return l.token(TokenColon, start), nil
 	case ',':
-		return l.token(tComma, start), nil
+		return l.token(TokenComma, start), nil
 	case ';':
-		return l.token(tSemi, start), nil
+		return l.token(TokenSemi, start), nil
 	case '(':
-		return l.token(tLParen, start), nil
+		return l.token(TokenLParen, start), nil
 	case ')':
-		return l.token(tRParen, start), nil
+		return l.token(TokenRParen, start), nil
 	case '[':
-		return l.token(tLBracket, start), nil
+		return l.token(TokenLBracket, start), nil
 	case ']':
-		return l.token(tRBracket, start), nil
+		return l.token(TokenRBracket, start), nil
 	case '{':
-		return l.token(tLBrace, start), nil
+		return l.token(TokenLBrace, start), nil
 	case '}':
-		return l.token(tRBrace, start), nil
+		return l.token(TokenRBrace, start), nil
 	}
 
 	// Single-character operators
 	if strings.ContainsRune("+-*/%^&|!<>=?#~", r) {
-		return l.token(tOp, start), nil
+		return l.token(TokenOp, start), nil
 	}
 
 	return lexer.Token{}, ErrUnexpectedCharacter.withPos(start).withChar(r)
@@ -366,7 +402,7 @@ func (l *lexerState) scanRawString(start lexer.Position) (lexer.Token, error) {
 		if l.peek() == '`' {
 			l.advance() // closing `
 
-			return l.token(tRawString, start), nil
+			return l.token(TokenRawString, start), nil
 		}
 
 		l.advance()
@@ -390,7 +426,7 @@ func (l *lexerState) scanString(start lexer.Position, quote rune) (lexer.Token, 
 		if ch == quote {
 			l.advance() // closing quote
 
-			return l.token(tString, start), nil
+			return l.token(TokenString, start), nil
 		}
 
 		if ch == '\n' {
@@ -412,7 +448,7 @@ func (l *lexerState) scanMultiCharOp(start lexer.Position) (lexer.Token, bool) {
 				l.advance()
 			}
 
-			return l.token(tOp, start), true
+			return l.token(TokenOp, start), true
 		}
 	}
 
@@ -433,7 +469,7 @@ func (l *lexerState) scanNumber(start lexer.Position) lexer.Token {
 				l.advance()
 			}
 
-			return l.token(tNumber, start)
+			return l.token(TokenNumber, start)
 
 		case 'o', 'O':
 			l.advance() // 0
@@ -443,7 +479,7 @@ func (l *lexerState) scanNumber(start lexer.Position) lexer.Token {
 				l.advance()
 			}
 
-			return l.token(tNumber, start)
+			return l.token(TokenNumber, start)
 
 		case 'b', 'B':
 			l.advance() // 0
@@ -453,7 +489,7 @@ func (l *lexerState) scanNumber(start lexer.Position) lexer.Token {
 				l.advance()
 			}
 
-			return l.token(tNumber, start)
+			return l.token(TokenNumber, start)
 		}
 	}
 
@@ -484,7 +520,18 @@ func (l *lexerState) scanNumber(start lexer.Position) lexer.Token {
 		}
 	}
 
-	return l.token(tNumber, start)
+	return l.token(TokenNumber, start)
+}
+
+// IsKeywordToken returns true if the token type is a structural keyword.
+func IsKeywordToken(typ lexer.TokenType) bool {
+	return typ == TokenQuery ||
+		typ == TokenImport ||
+		typ == TokenSetup ||
+		typ == TokenTeardown ||
+		typ == TokenTest ||
+		typ == TokenGroup ||
+		typ == TokenAssert
 }
 
 // Character helpers.

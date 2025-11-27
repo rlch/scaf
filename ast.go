@@ -15,6 +15,16 @@ type Node interface {
 	Span() Span
 }
 
+// CompletableNode is implemented by AST nodes that can detect incomplete syntax
+// for providing intelligent completions during typing.
+type CompletableNode interface {
+	Node
+	// IsComplete returns true if the node is syntactically complete.
+	// Incomplete nodes (e.g., "setup fixtures." without function name) are used
+	// to provide context-aware completions.
+	IsComplete() bool
+}
+
 // Suite represents a complete test file with queries, setup, teardown, and test scopes.
 type Suite struct {
 	Pos      lexer.Position `parser:""`
@@ -84,10 +94,22 @@ type SetupClause struct {
 	Inline *string        `parser:"@RawString"`
 	Named  *NamedSetup    `parser:"| @@"`
 	Block  []*SetupItem   `parser:"| '{' @@* '}'"`
+
+	// Recovery metadata - populated when parsing recovers from an error.
+	// These fields are automatically populated by participle when recovery succeeds.
+	Recovered     bool           `parser:""` // True if this node was recovered
+	RecoveredSpan lexer.Position `parser:""` // Position where recovery started
+	RecoveredEnd  lexer.Position `parser:""` // Position where recovery ended
+	SkippedTokens []lexer.Token  `parser:""` // Tokens skipped during recovery
 }
 
 // Span returns the source span of this node.
 func (s *SetupClause) Span() Span { return Span{Start: s.Pos, End: s.EndPos} }
+
+// IsComplete returns true if the setup clause has content.
+func (s *SetupClause) IsComplete() bool {
+	return s.Inline != nil || s.Named != nil || len(s.Block) > 0
+}
 
 // SetupItem represents a single item in a setup block.
 // Can be either an inline query or a named setup call.
@@ -111,10 +133,23 @@ type NamedSetup struct {
 	Module *string        `parser:"(@Ident Dot)?"`
 	Name   string         `parser:"@Ident '('"`
 	Params []*SetupParam  `parser:"(@@ (Comma @@)*)? ')'"`
+
+	// Recovery metadata - populated when parsing recovers from an error.
+	// These fields are automatically populated by participle when recovery succeeds.
+	Recovered     bool           `parser:""` // True if this node was recovered
+	RecoveredSpan lexer.Position `parser:""` // Position where recovery started
+	RecoveredEnd  lexer.Position `parser:""` // Position where recovery ended
+	SkippedTokens []lexer.Token  `parser:""` // Tokens skipped during recovery
 }
 
 // Span returns the source span of this node.
 func (n *NamedSetup) Span() Span { return Span{Start: n.Pos, End: n.EndPos} }
+
+// IsComplete returns true if the named setup has all required parts.
+// For NamedSetup, if it parsed successfully, it's complete.
+func (n *NamedSetup) IsComplete() bool {
+	return n.Name != ""
+}
 
 // SetupParam is a parameter passed to a named setup.
 type SetupParam struct {
@@ -187,15 +222,27 @@ type QueryScope struct {
 	QueryName string         `parser:"@Ident '{'"`
 	Setup     *SetupClause   `parser:"('setup' @@)?"`
 	Teardown  *string        `parser:"('teardown' @RawString)?"`
-	Items     []*TestOrGroup `parser:"@@* '}'"`
+	Items     []*TestOrGroup `parser:"@@*"`
+	Close     string         `parser:"@'}'"`
 
 	// Comments attached to this node (populated after parsing).
 	LeadingComments []string `parser:""`
 	TrailingComment string   `parser:""`
+
+	// Recovery metadata - populated when parsing recovers from an error.
+	Recovered     bool           `parser:""` // True if this node was recovered
+	RecoveredSpan lexer.Position `parser:""` // Position where recovery started
+	RecoveredEnd  lexer.Position `parser:""` // Position where recovery ended
+	SkippedTokens []lexer.Token  `parser:""` // Tokens skipped during recovery
 }
 
 // Span returns the source span of this node.
 func (q *QueryScope) Span() Span { return Span{Start: q.Pos, End: q.EndPos} }
+
+// IsComplete returns true if the query scope has a closing brace.
+func (q *QueryScope) IsComplete() bool {
+	return q.Close != ""
+}
 
 // TestOrGroup is a union type - either a Test or a Group.
 type TestOrGroup struct {
@@ -217,15 +264,27 @@ type Group struct {
 	Name     string         `parser:"'group' @String '{'"`
 	Setup    *SetupClause   `parser:"('setup' @@)?"`
 	Teardown *string        `parser:"('teardown' @RawString)?"`
-	Items    []*TestOrGroup `parser:"@@* '}'"`
+	Items    []*TestOrGroup `parser:"@@*"`
+	Close    string         `parser:"@'}'"`
 
 	// Comments attached to this node (populated after parsing).
 	LeadingComments []string `parser:""`
 	TrailingComment string   `parser:""`
+
+	// Recovery metadata - populated when parsing recovers from an error.
+	Recovered     bool           `parser:""` // True if this node was recovered
+	RecoveredSpan lexer.Position `parser:""` // Position where recovery started
+	RecoveredEnd  lexer.Position `parser:""` // Position where recovery ended
+	SkippedTokens []lexer.Token  `parser:""` // Tokens skipped during recovery
 }
 
 // Span returns the source span of this node.
 func (g *Group) Span() Span { return Span{Start: g.Pos, End: g.EndPos} }
+
+// IsComplete returns true if the group has a closing brace.
+func (g *Group) IsComplete() bool {
+	return g.Close != ""
+}
 
 // Test defines a single test case with inputs, expected outputs, and optional assertions.
 // Tests run in a transaction that rolls back after execution, so no teardown is needed.
@@ -237,15 +296,26 @@ type Test struct {
 	Setup      *SetupClause   `parser:"('setup' @@)?"`
 	Statements []*Statement   `parser:"@@*"`
 	Asserts    []*Assert      `parser:"@@*"`
-	Close      string         `parser:"'}'"`
+	Close      string         `parser:"@'}'"`
 
 	// Comments attached to this node (populated after parsing).
 	LeadingComments []string `parser:""`
 	TrailingComment string   `parser:""`
+
+	// Recovery metadata - populated when parsing recovers from an error.
+	Recovered     bool           `parser:""` // True if this node was recovered
+	RecoveredSpan lexer.Position `parser:""` // Position where recovery started
+	RecoveredEnd  lexer.Position `parser:""` // Position where recovery ended
+	SkippedTokens []lexer.Token  `parser:""` // Tokens skipped during recovery
 }
 
 // Span returns the source span of this node.
 func (t *Test) Span() Span { return Span{Start: t.Pos, End: t.EndPos} }
+
+// IsComplete returns true if the test has a closing brace.
+func (t *Test) IsComplete() bool {
+	return t.Close != ""
+}
 
 // Assert represents an assertion block with optional query.
 // Expressions are captured as tokens and reconstructed as strings for expr.Compile().
@@ -260,11 +330,23 @@ type Assert struct {
 	EndPos     lexer.Position `parser:""`
 	Tokens     []lexer.Token  `parser:""`
 	Query      *AssertQuery   `parser:"'assert' @@? '{'"`
-	Conditions []*Expr        `parser:"(@@ Semi?)* '}'"`
+	Conditions []*Expr        `parser:"(@@ Semi?)*"`
+	Close      string         `parser:"@'}'"`
+
+	// Recovery metadata - populated when parsing recovers from an error.
+	Recovered     bool           `parser:""` // True if this node was recovered
+	RecoveredSpan lexer.Position `parser:""` // Position where recovery started
+	RecoveredEnd  lexer.Position `parser:""` // Position where recovery ended
+	SkippedTokens []lexer.Token  `parser:""` // Tokens skipped during recovery
 }
 
 // Span returns the source span of this node.
 func (a *Assert) Span() Span { return Span{Start: a.Pos, End: a.EndPos} }
+
+// IsComplete returns true if the assert has a closing brace.
+func (a *Assert) IsComplete() bool {
+	return a.Close != ""
+}
 
 // AssertQuery specifies the query to run before evaluating conditions.
 // Either an inline raw string query or a named query reference with params.
@@ -278,6 +360,9 @@ type AssertQuery struct {
 	QueryName *string       `parser:"| @Ident '('"`
 	Params    []*SetupParam `parser:"(@@ (Comma @@)*)? ')'"`
 }
+
+// Span returns the source span of this node.
+func (a *AssertQuery) Span() Span { return Span{Start: a.Pos, End: a.EndPos} }
 
 // Expr captures tokens for expr-lang evaluation.
 // Tokens are reconstructed into a string and parsed by expr.Compile() at runtime.
@@ -418,6 +503,9 @@ type Statement struct {
 	KeyParts *DottedIdent   `parser:"@@"`
 	Value    *Value         `parser:"Colon @@"`
 }
+
+// Span returns the source span of this node.
+func (s *Statement) Span() Span { return Span{Start: s.Pos, End: s.EndPos} }
 
 // Key returns the statement key as a dot-joined string.
 func (s *Statement) Key() string {

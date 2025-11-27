@@ -103,21 +103,25 @@ const (
 
 // CompletionContext holds information about where completion was triggered.
 type CompletionContext struct {
-	Kind        CompletionKind
-	Prefix      string // Text before cursor (for filtering)
-	InScope     string // Name of enclosing QueryScope, if any
-	InTest      bool   // True if inside a test body
-	InSetup     bool   // True if inside a setup clause
-	InAssert    bool   // True if inside an assert block
-	LineText    string // Full text of the current line
-	TriggerChar string // The trigger character, if any
-	ModuleAlias string // Import alias before the dot (for setup function completion)
+	Kind         CompletionKind
+	Prefix       string // Text before cursor (for filtering)
+	InScope      string // Name of enclosing QueryScope, if any
+	InTest       bool   // True if inside a test body
+	InSetup      bool   // True if inside a setup clause
+	InAssert     bool   // True if inside an assert block
+	LineText     string // Full text of the current line
+	TriggerChar  string // The trigger character, if any
+	ModuleAlias  string // Import alias before the dot (for setup function completion)
+	lineNumber   int    // 0-based line number (for internal use)
+	columnNumber int    // 0-based column number (for internal use)
 }
 
 // getCompletionContext analyzes the document to determine completion context.
 func (s *Server) getCompletionContext(doc *Document, pos protocol.Position, triggerChar string) *CompletionContext {
 	cc := &CompletionContext{
-		Kind: CompletionKindNone,
+		Kind:         CompletionKindNone,
+		lineNumber:   int(pos.Line),
+		columnNumber: int(pos.Character),
 	}
 
 	// Get the current line text
@@ -188,58 +192,121 @@ func (s *Server) getCompletionContext(doc *Document, pos protocol.Position, trig
 }
 
 // determineCompletionKind figures out what kind of completions to offer.
+// Uses AST-based detection via token types instead of string matching.
 func (s *Server) determineCompletionKind(cc *CompletionContext, trimmedBefore string, doc *Document) CompletionKind {
-	// Check for parameter completion ($ trigger)
+	// Get token context for AST-based detection
+	var tokenCtx *analysis.TokenContext
+	if doc.Analysis != nil {
+		lexPos := analysis.PositionToLexer(uint32(cc.lineNumber), uint32(cc.columnNumber))
+		tokenCtx = analysis.GetTokenContext(doc.Analysis, lexPos)
+	}
+
+	// AST-based: Check for parameter completion ($ trigger or $-prefixed identifier)
 	if cc.TriggerChar == "$" || strings.HasPrefix(cc.Prefix, "$") {
 		if cc.InTest || cc.InSetup || cc.InAssert {
 			return CompletionKindParameter
 		}
 	}
 
-	// Check for setup function completion (. trigger after module alias)
-	// Pattern: "setup module." or "module." where module is an import alias
+	// AST-based: Check for setup function completion (. trigger after module alias)
 	if cc.TriggerChar == "." {
-		// Extract the identifier before the dot
+		// Use token context to find what's before the dot
+		if tokenCtx != nil && tokenCtx.PrevToken != nil {
+			if tokenCtx.PrevToken.Type == scaf.TokenIdent {
+				moduleAlias := tokenCtx.PrevToken.Value
+				if doc.Analysis != nil && doc.Analysis.Symbols != nil {
+					if _, ok := doc.Analysis.Symbols.Imports[moduleAlias]; ok {
+						cc.ModuleAlias = moduleAlias
+						return CompletionKindSetupFunction
+					}
+				}
+			}
+		}
+		// Fallback to string-based extraction
 		moduleAlias := extractModuleBeforeDot(trimmedBefore)
 		if moduleAlias != "" && doc.Analysis != nil && doc.Analysis.Symbols != nil {
-			// Check if this is a valid import alias
 			if _, ok := doc.Analysis.Symbols.Imports[moduleAlias]; ok {
 				cc.ModuleAlias = moduleAlias
 				return CompletionKindSetupFunction
 			}
 		}
-		// Dot trigger in other contexts (like u.name) - no special completion
-		// Let the user continue typing; don't offer irrelevant completions
+		// Dot in other contexts - no special completion
 		return CompletionKindNone
 	}
 
-	// After 'setup ' keyword - offer import aliases for setup function calls
-	// This handles "setup fixtures" at scope level, inside setup blocks, and inside tests
-	// IMPORTANT: This check must come BEFORE the InTest check, because setup can appear
-	// in multiple contexts and should always offer import aliases
+	// AST-based: Check if we're on or after a 'setup' keyword token
+	if tokenCtx != nil {
+		// If current token is the 'setup' keyword
+		if tokenCtx.Token != nil && tokenCtx.Token.Type == scaf.TokenSetup {
+			return CompletionKindImportAlias
+		}
+		// If previous token is 'setup' (cursor is right after "setup ")
+		if tokenCtx.PrevToken != nil && tokenCtx.PrevToken.Type == scaf.TokenSetup {
+			return CompletionKindImportAlias
+		}
+	}
+
+	// AST-based: Check if we're in an incomplete setup clause
+	if cc.InSetup && (cc.Prefix == "" || !strings.HasPrefix(cc.Prefix, "$")) {
+		if doc.Analysis != nil && doc.Analysis.Suite != nil {
+			node := s.findNodeAtPosition(doc, cc)
+			if setup, ok := node.(*scaf.SetupClause); ok && !setup.IsComplete() {
+				return CompletionKindImportAlias
+			}
+		}
+	}
+
+	// Fallback: string-based detection for 'setup' keyword (for parse errors)
 	trimmedLower := strings.ToLower(strings.TrimSpace(trimmedBefore))
-	if strings.HasPrefix(trimmedLower, "setup ") || trimmedLower == "setup" {
-		// User is typing after "setup " - offer import aliases
+	if trimmedLower == "setup" || strings.HasPrefix(trimmedLower, "setup ") {
 		return CompletionKindImportAlias
 	}
 
-	// Inside a test but not typing a parameter - could be return field
+	// AST-based: Inside a test - offer return fields or parameters
 	if cc.InTest && !strings.HasPrefix(cc.Prefix, "$") {
-		// Check if we're at the start of a statement (not after :)
+		if tokenCtx != nil && tokenCtx.PrevToken != nil {
+			// After a colon - we're in a value position, not completion context
+			if tokenCtx.PrevToken.Type == scaf.TokenColon {
+				return CompletionKindNone
+			}
+			// After open brace or at start of statement - offer return fields
+			if tokenCtx.PrevToken.Type == scaf.TokenLBrace ||
+				tokenCtx.PrevToken.Type == scaf.TokenIdent ||
+				tokenCtx.PrevToken.Type == scaf.TokenNumber {
+				return CompletionKindReturnField
+			}
+		}
+		// Fallback: string-based check for colon
 		if !strings.Contains(trimmedBefore, ":") {
 			return CompletionKindReturnField
 		}
 	}
 
-	// At top level or start of scope - keywords and query names
-	if cc.InScope == "" {
-		// Top level - offer keywords
-		if isAtLineStart(trimmedBefore) || cc.Prefix != "" {
-			// Could be query name or keyword
+	// AST-based: Top level detection
+	if tokenCtx != nil && cc.InScope == "" {
+		// After 'query' keyword - expecting identifier
+		if tokenCtx.PrevToken != nil && tokenCtx.PrevToken.Type == scaf.TokenQuery {
+			return CompletionKindNone // Let user type query name
+		}
+		// After 'import' keyword - expecting alias or path
+		if tokenCtx.PrevToken != nil && tokenCtx.PrevToken.Type == scaf.TokenImport {
+			return CompletionKindNone // Let user type import
+		}
+		// At start of line or after specific tokens - offer query names
+		if tokenCtx.PrevToken == nil || tokenCtx.PrevToken.Type == scaf.TokenRBrace {
 			if startsWithUpper(cc.Prefix) {
 				return CompletionKindQueryName
 			}
+			return CompletionKindKeyword
+		}
+	}
 
+	// Fallback: At top level or start of scope - keywords and query names
+	if cc.InScope == "" {
+		if isAtLineStart(trimmedBefore) || cc.Prefix != "" {
+			if startsWithUpper(cc.Prefix) {
+				return CompletionKindQueryName
+			}
 			return CompletionKindKeyword
 		}
 	} else {
@@ -255,6 +322,15 @@ func (s *Server) determineCompletionKind(cc *CompletionContext, trimmedBefore st
 	}
 
 	return CompletionKindKeyword
+}
+
+// findNodeAtPosition finds the AST node at the current completion position.
+func (s *Server) findNodeAtPosition(doc *Document, cc *CompletionContext) scaf.Node {
+	if doc.Analysis == nil {
+		return nil
+	}
+	lexPos := analysis.PositionToLexer(uint32(cc.lineNumber), uint32(cc.columnNumber))
+	return analysis.NodeAtPosition(doc.Analysis, lexPos)
 }
 
 // completeQueryNames returns completion items for query names.

@@ -1,0 +1,685 @@
+
+<!DOCTYPE html>
+<html>
+	<head>
+		<meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+		<title>adapter: Go Coverage Report</title>
+		<style>
+			body {
+				background: black;
+				color: rgb(80, 80, 80);
+			}
+			body, pre, #legend span {
+				font-family: Menlo, monospace;
+				font-weight: bold;
+			}
+			#topbar {
+				background: black;
+				position: fixed;
+				top: 0; left: 0; right: 0;
+				height: 42px;
+				border-bottom: 1px solid rgb(80, 80, 80);
+			}
+			#content {
+				margin-top: 50px;
+			}
+			#nav, #legend {
+				float: left;
+				margin-left: 10px;
+			}
+			#legend {
+				margin-top: 12px;
+			}
+			#nav {
+				margin-top: 10px;
+			}
+			#legend span {
+				margin: 0 5px;
+			}
+			.cov0 { color: rgb(192, 0, 0) }
+.cov1 { color: rgb(128, 128, 128) }
+.cov2 { color: rgb(116, 140, 131) }
+.cov3 { color: rgb(104, 152, 134) }
+.cov4 { color: rgb(92, 164, 137) }
+.cov5 { color: rgb(80, 176, 140) }
+.cov6 { color: rgb(68, 188, 143) }
+.cov7 { color: rgb(56, 200, 146) }
+.cov8 { color: rgb(44, 212, 149) }
+.cov9 { color: rgb(32, 224, 152) }
+.cov10 { color: rgb(20, 236, 155) }
+
+		</style>
+	</head>
+	<body>
+		<div id="topbar">
+			<div id="nav">
+				<select id="files">
+				
+				<option value="file0">github.com/rlch/scaf/language/go/adapter/adapter.go (100.0%)</option>
+				
+				<option value="file1">github.com/rlch/scaf/language/go/language.go (88.9%)</option>
+				
+				<option value="file2">github.com/rlch/scaf/language/go/signature.go (94.3%)</option>
+				
+				</select>
+			</div>
+			<div id="legend">
+				<span>not tracked</span>
+			
+				<span class="cov0">not covered</span>
+				<span class="cov8">covered</span>
+			
+			</div>
+		</div>
+		<div id="content">
+		
+		<pre class="file" id="file0" style="display: none">// Package adapter defines the interface for database-specific code generation.
+//
+// Adapters are responsible for generating the function body that executes
+// queries against a specific database driver. Each adapter knows the idioms
+// and patterns of its target database (e.g., neogo for Neo4j, pgx for Postgres).
+//
+// Adapters are used at code-generation time only, not runtime. The generated
+// code directly uses the database driver without any scaf runtime dependency.
+package adapter
+
+import "github.com/rlch/scaf/analysis"
+
+// Adapter generates database-specific Go code for query execution.
+type Adapter interface {
+        // Name returns the adapter identifier (e.g., "neogo", "pgx").
+        Name() string
+
+        // Imports returns the import paths needed by generated code.
+        // These are added to the generated file's import block.
+        Imports() []string
+
+        // GenerateBody generates the function body for a query.
+        // The body should execute the query and return the results.
+        // It should NOT include the function signature or braces.
+        GenerateBody(ctx *BodyContext) (string, error)
+}
+
+// BodyContext provides information needed to generate a function body.
+type BodyContext struct {
+        // Query is the raw query string to execute.
+        Query string
+
+        // Signature describes the function's parameters and return types.
+        Signature *Signature
+
+        // Schema provides type information from the user's codebase.
+        // May be nil if no schema is available.
+        Schema *analysis.TypeSchema
+
+        // ReceiverName is the name of the receiver variable (e.g., "db", "client").
+        // Empty if the function is not a method.
+        ReceiverName string
+
+        // ReceiverType is the type of the receiver (e.g., "*Client", "DB").
+        // Empty if the function is not a method.
+        ReceiverType string
+}
+
+// Signature describes a function's parameters and return types.
+// This is a simplified version of FuncSignature for adapter use.
+type Signature struct {
+        // Name is the function name.
+        Name string
+
+        // Params are the function parameters.
+        Params []Param
+
+        // Returns are the return types.
+        Returns []Return
+
+        // ReturnsSlice indicates if the function returns multiple rows.
+        ReturnsSlice bool
+
+        // ReturnsError indicates if the function returns an error.
+        ReturnsError bool
+}
+
+// Param describes a function parameter.
+type Param struct {
+        // Name is the parameter name (without $ prefix).
+        Name string
+
+        // Type is the Go type string.
+        Type string
+}
+
+// Return describes a return value.
+type Return struct {
+        // Name is the field name (may be empty for single returns).
+        Name string
+
+        // Type is the Go type string.
+        Type string
+}
+
+// Registration for adapter discovery.
+var adapters = make(map[string]Adapter)
+
+// Register registers an adapter by name.
+func Register(a Adapter) <span class="cov8" title="1">{
+        adapters[a.Name()] = a
+}</span>
+
+// Get returns an adapter by name, or nil if not registered.
+func Get(name string) Adapter <span class="cov8" title="1">{ //nolint:ireturn
+        return adapters[name]
+}</span>
+
+// RegisteredAdapters returns the names of all registered adapters.
+func RegisteredAdapters() []string <span class="cov8" title="1">{
+        names := make([]string, 0, len(adapters))
+        for name := range adapters </span><span class="cov8" title="1">{
+                names = append(names, name)
+        }</span>
+
+        <span class="cov8" title="1">return names</span>
+}
+</pre>
+		
+		<pre class="file" id="file1" style="display: none">// Package golang provides Go code generation from scaf DSL files.
+//
+// This package generates two files from a .scaf file:
+//   - scaf.go: Production functions that execute queries via an adapter
+//   - scaf_test.go: Test mocks using //go:linkname for test isolation
+//
+// # Usage
+//
+// The generator is typically invoked via the scaf CLI:
+//
+//        scaf generate --lang go ./queries.scaf
+//
+// # Architecture
+//
+// The generator uses adapters to produce database-specific code. Each adapter
+// (e.g., neogo) knows how to generate the function body for executing queries
+// against its database driver.
+//
+// Test mocks use //go:linkname to replace production functions at test time.
+// The mocks contain inlined if-chains that match test parameters directly,
+// avoiding runtime parsing or registries.
+package golang
+
+import (
+        "github.com/rlch/scaf"
+        "github.com/rlch/scaf/analysis"
+        "github.com/rlch/scaf/language/go/adapter"
+)
+
+// Re-export for convenience.
+type (
+        // Adapter is re-exported from the adapter package.
+        Adapter = adapter.Adapter
+        // BodyContext is re-exported from the adapter package.
+        BodyContext = adapter.BodyContext
+)
+
+// Language represents a target language for code generation.
+// Implementations generate source files from parsed scaf suites.
+type Language interface {
+        // Name returns the language identifier (e.g., "go", "typescript").
+        Name() string
+
+        // Generate produces source files from the given context.
+        // Returns a map of filename to content.
+        Generate(ctx *GenerateContext) (map[string][]byte, error)
+}
+
+// GenerateContext provides all information needed for code generation.
+type GenerateContext struct {
+        // Suite is the parsed scaf AST.
+        Suite *scaf.Suite
+
+        // Schema provides type information from the user's codebase.
+        // May be nil if no schema is available.
+        Schema *analysis.TypeSchema
+
+        // Adapter generates database-specific code.
+        Adapter adapter.Adapter
+
+        // QueryAnalyzer extracts parameters and returns from queries.
+        // May be nil if no analyzer is available for the dialect.
+        QueryAnalyzer scaf.QueryAnalyzer
+
+        // PackageName is the Go package name for generated files.
+        PackageName string
+
+        // OutputDir is the directory where files will be written.
+        OutputDir string
+}
+
+// FuncSignature represents a generated function's signature.
+type FuncSignature struct {
+        // Name is the function name (derived from query name).
+        Name string
+
+        // Params are the function parameters (from query $variables).
+        Params []FuncParam
+
+        // Returns are the function return types (from query RETURN clause).
+        Returns []FuncReturn
+
+        // Query is the raw query body.
+        Query string
+
+        // QueryName is the original query name from the scaf file.
+        QueryName string
+}
+
+// FuncParam represents a function parameter.
+type FuncParam struct {
+        // Name is the parameter name (without $ prefix).
+        Name string
+
+        // Type is the Go type (e.g., "string", "int64", "*User").
+        Type string
+
+        // Required indicates if the parameter must be provided.
+        Required bool
+}
+
+// FuncReturn represents a function return value.
+type FuncReturn struct {
+        // Name is the return field name (for named returns).
+        Name string
+
+        // Type is the Go type.
+        Type string
+
+        // IsSlice indicates if this returns multiple rows.
+        IsSlice bool
+}
+
+// GoLanguage implements Language for Go code generation.
+type GoLanguage struct{}
+
+// Name returns "go".
+func (g *GoLanguage) Name() string <span class="cov8" title="1">{
+        return "go"
+}</span>
+
+// Generate produces scaf.go and scaf_test.go from the suite.
+func (g *GoLanguage) Generate(ctx *GenerateContext) (map[string][]byte, error) <span class="cov8" title="1">{
+        gen := &amp;generator{ctx: ctx}
+
+        return gen.Generate()
+}</span>
+
+// New creates a new Go language generator.
+func New() *GoLanguage <span class="cov8" title="1">{
+        return &amp;GoLanguage{}
+}</span>
+
+// generator holds state during code generation.
+type generator struct {
+        ctx *GenerateContext
+}
+
+// Generate produces all output files.
+func (g *generator) Generate() (map[string][]byte, error) <span class="cov8" title="1">{
+        files := make(map[string][]byte)
+
+        // Extract function signatures from queries
+        signatures, err := g.extractSignatures()
+        if err != nil </span><span class="cov0" title="0">{
+                return nil, err
+        }</span>
+
+        // Generate production code
+        <span class="cov8" title="1">prod, err := g.generateProduction(signatures)
+        if err != nil </span><span class="cov0" title="0">{
+                return nil, err
+        }</span>
+
+        <span class="cov8" title="1">files["scaf.go"] = prod
+
+        // Generate test mocks
+        test, err := g.generateTest(signatures)
+        if err != nil </span><span class="cov0" title="0">{
+                return nil, err
+        }</span>
+
+        <span class="cov8" title="1">files["scaf_test.go"] = test
+
+        return files, nil</span>
+}
+
+// extractSignatures builds FuncSignature for each query in the suite.
+func (g *generator) extractSignatures() ([]*FuncSignature, error) <span class="cov8" title="1">{
+        return ExtractSignatures(g.ctx.Suite, g.ctx.QueryAnalyzer, g.ctx.Schema)
+}</span>
+
+// generateProduction generates the scaf.go file.
+func (g *generator) generateProduction(_ []*FuncSignature) ([]byte, error) <span class="cov8" title="1">{
+        // Placeholder - implement production generation in Step 5
+        return nil, nil
+}</span>
+
+// generateTest generates the scaf_test.go file.
+func (g *generator) generateTest(_ []*FuncSignature) ([]byte, error) <span class="cov8" title="1">{
+        // Placeholder - implement test generation in Step 3
+        return nil, nil
+}</span>
+
+// Registration for language discovery.
+var languages = make(map[string]Language)
+
+// Register registers a language by name.
+func Register(lang Language) <span class="cov8" title="1">{
+        languages[lang.Name()] = lang
+}</span>
+
+// Get returns a language by name, or nil if not registered.
+func Get(name string) Language <span class="cov8" title="1">{ //nolint:ireturn
+        return languages[name]
+}</span>
+
+// RegisteredLanguages returns the names of all registered languages.
+func RegisteredLanguages() []string <span class="cov8" title="1">{
+        names := make([]string, 0, len(languages))
+        for name := range languages </span><span class="cov8" title="1">{
+                names = append(names, name)
+        }</span>
+
+        <span class="cov8" title="1">return names</span>
+}
+
+//nolint:gochecknoinits // Registration pattern requires init.
+func init() <span class="cov8" title="1">{
+        Register(New())
+}</span>
+</pre>
+		
+		<pre class="file" id="file2" style="display: none">package golang
+
+import (
+        "fmt"
+        "strings"
+        "unicode"
+
+        "github.com/rlch/scaf"
+        "github.com/rlch/scaf/analysis"
+)
+
+// ExtractSignatures extracts function signatures from all queries in a suite.
+// It uses the query analyzer to extract parameters and return fields,
+// then maps them to Go types using the schema when available.
+func ExtractSignatures(suite *scaf.Suite, analyzer scaf.QueryAnalyzer, schema *analysis.TypeSchema) ([]*FuncSignature, error) <span class="cov8" title="1">{
+        if suite == nil </span><span class="cov8" title="1">{
+                return nil, nil
+        }</span>
+
+        <span class="cov8" title="1">signatures := make([]*FuncSignature, 0, len(suite.Queries))
+
+        for _, query := range suite.Queries </span><span class="cov8" title="1">{
+                sig, err := ExtractSignature(query, analyzer, schema)
+                if err != nil </span><span class="cov0" title="0">{
+                        return nil, fmt.Errorf("query %s: %w", query.Name, err)
+                }</span>
+
+                <span class="cov8" title="1">signatures = append(signatures, sig)</span>
+        }
+
+        <span class="cov8" title="1">return signatures, nil</span>
+}
+
+// ExtractSignature extracts a function signature from a single query.
+func ExtractSignature(query *scaf.Query, analyzer scaf.QueryAnalyzer, schema *analysis.TypeSchema) (*FuncSignature, error) <span class="cov8" title="1">{
+        sig := &amp;FuncSignature{
+                Name:      toExportedName(query.Name),
+                Query:     query.Body,
+                QueryName: query.Name,
+                Params:    []FuncParam{},
+                Returns:   []FuncReturn{},
+        }
+
+        // If no analyzer, we can only provide basic signature
+        if analyzer == nil </span><span class="cov8" title="1">{
+                return sig, nil
+        }</span>
+
+        // Analyze the query to extract parameters and returns
+        <span class="cov8" title="1">metadata, err := analyzer.AnalyzeQuery(query.Body)
+        if err != nil </span><span class="cov0" title="0">{
+                return nil, fmt.Errorf("failed to analyze query: %w", err)
+        }</span>
+
+        <span class="cov8" title="1">if metadata == nil </span><span class="cov0" title="0">{
+                return sig, nil
+        }</span>
+
+        // Convert parameters
+        <span class="cov8" title="1">for _, param := range metadata.Parameters </span><span class="cov8" title="1">{
+                funcParam := FuncParam{
+                        Name:     param.Name,
+                        Type:     inferParamType(param, schema),
+                        Required: true, // Parameters are required by default
+                }
+                sig.Params = append(sig.Params, funcParam)
+        }</span>
+
+        // Convert returns
+        <span class="cov8" title="1">for _, ret := range metadata.Returns </span><span class="cov8" title="1">{
+                // Skip wildcards - they need special handling
+                if ret.IsWildcard </span><span class="cov0" title="0">{
+                        continue</span>
+                }
+
+                <span class="cov8" title="1">funcReturn := FuncReturn{
+                        Name:    ret.Name,
+                        Type:    inferReturnType(ret, schema),
+                        IsSlice: false, // Will be determined by query context
+                }
+                sig.Returns = append(sig.Returns, funcReturn)</span>
+        }
+
+        <span class="cov8" title="1">return sig, nil</span>
+}
+
+// toExportedName converts a query name to an exported Go function name.
+// Examples:
+//
+//        "getUserById" -&gt; "GetUserById"
+//        "get_user_by_id" -&gt; "GetUserByID"
+//        "GetUser" -&gt; "GetUser"
+func toExportedName(name string) string <span class="cov8" title="1">{
+        if name == "" </span><span class="cov8" title="1">{
+                return ""
+        }</span>
+
+        // Handle snake_case
+        <span class="cov8" title="1">if strings.Contains(name, "_") </span><span class="cov8" title="1">{
+                return snakeToPascal(name)
+        }</span>
+
+        // Already PascalCase or camelCase - just ensure first letter is uppercase
+        <span class="cov8" title="1">runes := []rune(name)
+        runes[0] = unicode.ToUpper(runes[0])
+
+        return string(runes)</span>
+}
+
+// snakeToPascal converts snake_case to PascalCase.
+func snakeToPascal(s string) string <span class="cov8" title="1">{
+        parts := strings.Split(s, "_")
+        result := make([]string, 0, len(parts))
+
+        for _, part := range parts </span><span class="cov8" title="1">{
+                if part == "" </span><span class="cov0" title="0">{
+                        continue</span>
+                }
+
+                // Handle common acronyms
+                <span class="cov8" title="1">upper := strings.ToUpper(part)
+                if isAcronym(upper) </span><span class="cov8" title="1">{
+                        result = append(result, upper)
+                }</span> else<span class="cov8" title="1"> {
+                        runes := []rune(part)
+                        runes[0] = unicode.ToUpper(runes[0])
+                        result = append(result, string(runes))
+                }</span>
+        }
+
+        <span class="cov8" title="1">return strings.Join(result, "")</span>
+}
+
+// isAcronym returns true if the string is a common acronym.
+func isAcronym(s string) bool <span class="cov8" title="1">{
+        acronyms := map[string]bool{
+                "ID":   true,
+                "URL":  true,
+                "API":  true,
+                "HTTP": true,
+                "JSON": true,
+                "XML":  true,
+                "SQL":  true,
+                "UUID": true,
+                "DB":   true,
+        }
+
+        return acronyms[s]
+}</span>
+
+// inferParamType infers the Go type for a query parameter.
+// Uses the analyzer's type hint or schema lookup, otherwise defaults to "any".
+func inferParamType(param scaf.ParameterInfo, schema *analysis.TypeSchema) string <span class="cov8" title="1">{
+        // If we have a type hint from the analyzer, use it
+        if param.Type != "" </span><span class="cov8" title="1">{
+                return mapAnalyzerType(param.Type)
+        }</span>
+
+        // Try to find the type from the schema by looking up fields with matching names
+        <span class="cov8" title="1">if schema != nil </span><span class="cov8" title="1">{
+                if fieldType := lookupFieldType(param.Name, schema); fieldType != nil </span><span class="cov8" title="1">{
+                        return fieldType.String()
+                }</span>
+        }
+
+        <span class="cov8" title="1">return "any"</span>
+}
+
+// inferReturnType infers the Go type for a return field.
+// Uses the analyzer's type hint or schema lookup, otherwise defaults to "any".
+func inferReturnType(ret scaf.ReturnInfo, schema *analysis.TypeSchema) string <span class="cov8" title="1">{
+        // If we have a type hint from the analyzer, use it
+        if ret.Type != "" </span><span class="cov8" title="1">{
+                return mapAnalyzerType(ret.Type)
+        }</span>
+
+        // Try to find the type from the schema using the parsed name
+        // (The analyzer already extracts the field name from expressions like "u.name")
+        <span class="cov8" title="1">if schema != nil </span><span class="cov8" title="1">{
+                if fieldType := lookupFieldType(ret.Name, schema); fieldType != nil </span><span class="cov8" title="1">{
+                        return fieldType.String()
+                }</span>
+        }
+
+        <span class="cov8" title="1">return "any"</span>
+}
+
+// lookupFieldType searches the schema for a field with the given name.
+// Returns the field's type if found, nil otherwise.
+func lookupFieldType(fieldName string, schema *analysis.TypeSchema) *analysis.Type <span class="cov8" title="1">{
+        if schema == nil || fieldName == "" </span><span class="cov8" title="1">{
+                return nil
+        }</span>
+
+        // Search all models for a matching field
+        <span class="cov8" title="1">for _, model := range schema.Models </span><span class="cov8" title="1">{
+                for _, field := range model.Fields </span><span class="cov8" title="1">{
+                        if field.Name == fieldName </span><span class="cov8" title="1">{
+                                return field.Type
+                        }</span>
+                }
+        }
+
+        <span class="cov8" title="1">return nil</span>
+}
+
+// LookupFieldTypeInModel looks up a field type in a specific model.
+func LookupFieldTypeInModel(modelName, fieldName string, schema *analysis.TypeSchema) *analysis.Type <span class="cov8" title="1">{
+        if schema == nil </span><span class="cov8" title="1">{
+                return nil
+        }</span>
+
+        <span class="cov8" title="1">model, ok := schema.Models[modelName]
+        if !ok </span><span class="cov8" title="1">{
+                return nil
+        }</span>
+
+        <span class="cov8" title="1">for _, field := range model.Fields </span><span class="cov8" title="1">{
+                if field.Name == fieldName </span><span class="cov8" title="1">{
+                        return field.Type
+                }</span>
+        }
+
+        <span class="cov8" title="1">return nil</span>
+}
+
+// mapAnalyzerType maps an analyzer type string to a Go type.
+func mapAnalyzerType(t string) string <span class="cov8" title="1">{
+        switch strings.ToLower(t) </span>{
+        case "string", "text":<span class="cov8" title="1">
+                return "string"</span>
+        case "int", "integer", "long":<span class="cov8" title="1">
+                return "int64"</span>
+        case "float", "double", "decimal":<span class="cov8" title="1">
+                return "float64"</span>
+        case "bool", "boolean":<span class="cov8" title="1">
+                return "bool"</span>
+        case "date", "datetime", "timestamp":<span class="cov8" title="1">
+                return "time.Time"</span>
+        case "list", "array":<span class="cov8" title="1">
+                return "[]any"</span>
+        case "map", "object":<span class="cov8" title="1">
+                return "map[string]any"</span>
+        default:<span class="cov8" title="1">
+                return "any"</span>
+        }
+}
+
+// TypeToGoString converts an analysis.Type to a Go type string.
+func TypeToGoString(t *analysis.Type) string <span class="cov8" title="1">{
+        if t == nil </span><span class="cov8" title="1">{
+                return "any"
+        }</span>
+
+        <span class="cov8" title="1">return t.String()</span>
+}
+</pre>
+		
+		</div>
+	</body>
+	<script>
+	(function() {
+		var files = document.getElementById('files');
+		var visible;
+		files.addEventListener('change', onChange, false);
+		function select(part) {
+			if (visible)
+				visible.style.display = 'none';
+			visible = document.getElementById(part);
+			if (!visible)
+				return;
+			files.value = part;
+			visible.style.display = 'block';
+			location.hash = part;
+		}
+		function onChange() {
+			select(files.value);
+			window.scrollTo(0, 0);
+		}
+		if (location.hash != "") {
+			select(location.hash.substr(1));
+		}
+		if (!visible) {
+			select("file0");
+		}
+	})();
+	</script>
+</html>

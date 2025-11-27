@@ -185,6 +185,15 @@ type ParameterInfo struct {
 	// Position is the character offset in the query.
 	Position int
 
+	// Line is the 1-indexed line number in the query.
+	Line int
+
+	// Column is the 1-indexed column in the query.
+	Column int
+
+	// Length is the length of the parameter reference in characters.
+	Length int
+
 	// Count is how many times this parameter appears.
 	Count int
 }
@@ -199,6 +208,11 @@ type ReturnInfo struct {
 
 	// Expression is the original expression text.
 	Expression string
+
+	// Alias is the explicit alias if AS keyword was used, empty otherwise.
+	// When Alias is set, the database column name is Alias.
+	// When Alias is empty, the database column name is Expression.
+	Alias string
 
 	// IsAggregate indicates this is an aggregate function result.
 	IsAggregate bool

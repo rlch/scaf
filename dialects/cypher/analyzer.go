@@ -102,17 +102,21 @@ func extractParameters(tree antlr.ParseTree, result *scaf.QueryMetadata) {
 			// Extract parameter name from Symbol() or NumLit()
 			var paramName string
 
-			var position int
+			startToken := paramCtx.GetStart()
+			position := startToken.GetStart()
+			line := startToken.GetLine()
+			column := startToken.GetColumn() + 1 // ANTLR is 0-based, we want 1-based
 
 			if symbol := paramCtx.Symbol(); symbol != nil {
 				paramName = symbol.GetText()
-				position = paramCtx.GetStart().GetStart()
 			} else if numLit := paramCtx.NumLit(); numLit != nil {
 				paramName = numLit.GetText()
-				position = paramCtx.GetStart().GetStart()
 			}
 
 			if paramName != "" {
+				// Length includes the $ prefix
+				length := len(paramName) + 1
+
 				if idx, exists := indexByKey[paramName]; exists {
 					result.Parameters[idx].Count++
 				} else {
@@ -120,6 +124,9 @@ func extractParameters(tree antlr.ParseTree, result *scaf.QueryMetadata) {
 					result.Parameters = append(result.Parameters, scaf.ParameterInfo{
 						Name:     paramName,
 						Position: position,
+						Line:     line,
+						Column:   column,
+						Length:   length,
 						Count:    1,
 					})
 				}
@@ -229,6 +236,7 @@ func extractProjectionItem(itemCtx *cyphergrammar.ProjectionItemContext, result 
 	result.Returns = append(result.Returns, scaf.ReturnInfo{
 		Name:        name,
 		Expression:  expression,
+		Alias:       alias,
 		IsAggregate: isAggregate,
 		IsWildcard:  isWildcard,
 	})

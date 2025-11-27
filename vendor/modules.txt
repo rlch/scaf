@@ -32,6 +32,7 @@ github.com/charmbracelet/x/cellbuf
 github.com/charmbracelet/x/term
 # github.com/davecgh/go-spew v1.1.1
 ## explicit
+github.com/davecgh/go-spew/spew
 # github.com/dlclark/regexp2 v1.11.5
 ## explicit; go 1.13
 github.com/dlclark/regexp2
@@ -125,6 +126,7 @@ github.com/neo4j/neo4j-go-driver/v5/neo4j/notifications
 github.com/oklog/ulid/v2
 # github.com/pmezard/go-difflib v1.0.0
 ## explicit
+github.com/pmezard/go-difflib/difflib
 # github.com/rivo/uniseg v0.4.7
 ## explicit; go 1.18
 github.com/rivo/uniseg
@@ -152,6 +154,9 @@ github.com/segmentio/encoding/iso8601
 github.com/segmentio/encoding/json
 # github.com/stretchr/testify v1.11.1
 ## explicit; go 1.17
+github.com/stretchr/testify/assert
+github.com/stretchr/testify/assert/yaml
+github.com/stretchr/testify/require
 # github.com/urfave/cli/v3 v3.6.1
 ## explicit; go 1.22
 github.com/urfave/cli/v3

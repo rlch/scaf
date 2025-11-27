@@ -363,7 +363,7 @@ func TestLexer_ComplexExpressions(t *testing.T) {
 			"assertion",
 			"assert { c == 1 }",
 			[]tokenExpect{
-				{"Ident", "assert"}, {"{", "{"},
+				{"assert", "assert"}, {"{", "{"},
 				{"Ident", "c"}, {"Op", "=="}, {"Number", "1"},
 				{"}", "}"},
 			},
@@ -381,7 +381,7 @@ func TestLexer_ComplexExpressions(t *testing.T) {
 			"query definition",
 			"query GetUser `MATCH (u:User) RETURN u`",
 			[]tokenExpect{
-				{"Ident", "query"}, {"Ident", "GetUser"},
+				{"query", "query"}, {"Ident", "GetUser"},
 				{"RawString", "`MATCH (u:User) RETURN u`"},
 			},
 		},
@@ -389,7 +389,7 @@ func TestLexer_ComplexExpressions(t *testing.T) {
 			"test definition",
 			`test "finds user" { }`,
 			[]tokenExpect{
-				{"Ident", "test"}, {"String", `"finds user"`},
+				{"test", "test"}, {"String", `"finds user"`},
 				{"{", "{"}, {"}", "}"},
 			},
 		},

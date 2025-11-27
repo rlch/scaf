@@ -220,6 +220,74 @@ func (p *parseContext) getTypeStrategies(t reflect.Type) []RecoveryStrategy {
 	return nil
 }
 
+// tryRecoverForType attempts to recover from a parse error using type-specific strategies first,
+// then global strategies. This is used by strct.Parse to allow ViaParser to work for structs.
+// Returns (recovered, values, lexerProgressed).
+func (p *parseContext) tryRecoverForType(err error, parent reflect.Value, targetType reflect.Type) (bool, []reflect.Value, bool) {
+	if !p.recoveryEnabled() {
+		return false, nil, false
+	}
+
+	// Check if we've exceeded max errors
+	if p.recovery.maxErrors > 0 && len(p.recoveryErrors) >= p.recovery.maxErrors {
+		p.traceRecovery("max errors (%d) reached, not attempting recovery", p.recovery.maxErrors)
+		return false, nil, false
+	}
+
+	startPos := p.Peek().Pos
+	startCursor := p.RawCursor()
+	p.traceRecoveryAttempt(startPos, err, "type-specific")
+
+	// Collect strategies: type-specific first, then global
+	var strategies []RecoveryStrategy
+	if typeStrategies := p.getTypeStrategies(targetType); len(typeStrategies) > 0 {
+		strategies = append(strategies, typeStrategies...)
+	}
+	strategies = append(strategies, p.recovery.strategies...)
+
+	// Try each strategy in order
+	for _, strategy := range strategies {
+		checkpoint := p.PeekingLexer.MakeCheckpoint()
+		currentPos := p.Peek().Pos
+
+		// Get strategy name if available
+		strategyName := "unknown"
+		if enhanced, ok := strategy.(EnhancedRecoveryStrategy); ok {
+			strategyName = enhanced.Name()
+		} else if _, ok := strategy.(*ViaParserStrategy); ok {
+			strategyName = "via_parser"
+		}
+
+		p.traceRecoveryStrategy(strategyName, currentPos)
+
+		// Try enhanced recovery if available
+		if enhanced, ok := strategy.(EnhancedRecoveryStrategy); ok {
+			result := enhanced.RecoverWithContext(p, err, parent)
+			if result.recovered {
+				progressed := p.RawCursor() > startCursor
+				p.traceRecoverySuccess(result.strategyName, len(result.skippedTokens), p.Peek().Pos)
+				p.addRecoveryError(result.err)
+				return true, result.values, progressed
+			}
+			p.traceRecoveryFailed(strategyName, "strategy returned false")
+		} else {
+			recovered, values, newErr := strategy.Recover(p, err, parent)
+			if recovered {
+				progressed := p.RawCursor() > startCursor
+				p.traceRecoverySuccess(strategyName, 0, p.Peek().Pos)
+				p.addRecoveryError(newErr)
+				return true, values, progressed
+			}
+			p.traceRecoveryFailed(strategyName, "strategy returned false")
+		}
+		// Restore checkpoint if strategy failed
+		p.PeekingLexer.LoadCheckpoint(checkpoint)
+	}
+
+	p.traceRecoveryAllFailed()
+	return false, nil, false
+}
+
 // Recovery tracing methods
 
 // traceRecovery writes a trace message if recovery tracing is enabled.

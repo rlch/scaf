@@ -444,6 +444,204 @@ func tokenContainsPosition(tok *lexer.Token, pos lexer.Position) bool {
 	return pos.Column >= startCol && pos.Column < endCol
 }
 
+// tokenEndsBefore returns true if the token ends before the given position.
+func tokenEndsBefore(tok *lexer.Token, pos lexer.Position) bool {
+	endLine := tok.Pos.Line
+	endCol := tok.Pos.Column + len(tok.Value)
+
+	if endLine < pos.Line {
+		return true
+	}
+	if endLine == pos.Line && endCol <= pos.Column {
+		return true
+	}
+	return false
+}
+
+// PrevTokenAtPosition finds the non-whitespace token immediately before a given position.
+// This is useful for completion to know what token precedes the cursor.
+// Whitespace and comment tokens are skipped.
+func PrevTokenAtPosition(f *AnalyzedFile, pos lexer.Position) *lexer.Token {
+	if f.Suite == nil {
+		return nil
+	}
+
+	var best *lexer.Token
+	bestEnd := lexer.Position{}
+
+	// Helper to update best if this token is closer to pos but still before it
+	// Skips whitespace and comment tokens
+	checkToken := func(tok *lexer.Token) {
+		// Skip whitespace and comments
+		if tok.Type == scaf.TokenWhitespace || tok.Type == scaf.TokenComment {
+			return
+		}
+		if !tokenEndsBefore(tok, pos) {
+			return
+		}
+		tokEnd := lexer.Position{
+			Line:   tok.Pos.Line,
+			Column: tok.Pos.Column + len(tok.Value),
+		}
+		// Is this token closer to pos than the current best?
+		if best == nil ||
+			tokEnd.Line > bestEnd.Line ||
+			(tokEnd.Line == bestEnd.Line && tokEnd.Column > bestEnd.Column) {
+			best = tok
+			bestEnd = tokEnd
+		}
+	}
+
+	// Check all tokens in the suite
+	for i := range f.Suite.Tokens {
+		checkToken(&f.Suite.Tokens[i])
+	}
+
+	// Check imports
+	for _, imp := range f.Suite.Imports {
+		for i := range imp.Tokens {
+			checkToken(&imp.Tokens[i])
+		}
+	}
+
+	// Check queries
+	for _, q := range f.Suite.Queries {
+		for i := range q.Tokens {
+			checkToken(&q.Tokens[i])
+		}
+	}
+
+	// Check scopes
+	for _, scope := range f.Suite.Scopes {
+		findPrevTokenInScope(scope, pos, &best, &bestEnd)
+	}
+
+	return best
+}
+
+// findPrevTokenInScope searches for previous token in a scope.
+func findPrevTokenInScope(scope *scaf.QueryScope, pos lexer.Position, best **lexer.Token, bestEnd *lexer.Position) {
+	checkToken := func(tok *lexer.Token) {
+		// Skip whitespace and comments
+		if tok.Type == scaf.TokenWhitespace || tok.Type == scaf.TokenComment {
+			return
+		}
+		if !tokenEndsBefore(tok, pos) {
+			return
+		}
+		tokEnd := lexer.Position{
+			Line:   tok.Pos.Line,
+			Column: tok.Pos.Column + len(tok.Value),
+		}
+		if *best == nil ||
+			tokEnd.Line > bestEnd.Line ||
+			(tokEnd.Line == bestEnd.Line && tokEnd.Column > bestEnd.Column) {
+			*best = tok
+			*bestEnd = tokEnd
+		}
+	}
+
+	// Check scope tokens
+	for i := range scope.Tokens {
+		checkToken(&scope.Tokens[i])
+	}
+
+	// Check setup
+	if scope.Setup != nil {
+		findPrevTokenInSetupClause(scope.Setup, pos, best, bestEnd)
+	}
+
+	// Check items
+	for _, item := range scope.Items {
+		findPrevTokenInTestOrGroup(item, pos, best, bestEnd)
+	}
+}
+
+// findPrevTokenInTestOrGroup searches for previous token in a test or group.
+func findPrevTokenInTestOrGroup(item *scaf.TestOrGroup, pos lexer.Position, best **lexer.Token, bestEnd *lexer.Position) {
+	if item == nil {
+		return
+	}
+
+	checkToken := func(tok *lexer.Token) {
+		// Skip whitespace and comments
+		if tok.Type == scaf.TokenWhitespace || tok.Type == scaf.TokenComment {
+			return
+		}
+		if !tokenEndsBefore(tok, pos) {
+			return
+		}
+		tokEnd := lexer.Position{
+			Line:   tok.Pos.Line,
+			Column: tok.Pos.Column + len(tok.Value),
+		}
+		if *best == nil ||
+			tokEnd.Line > bestEnd.Line ||
+			(tokEnd.Line == bestEnd.Line && tokEnd.Column > bestEnd.Column) {
+			*best = tok
+			*bestEnd = tokEnd
+		}
+	}
+
+	for i := range item.Tokens {
+		checkToken(&item.Tokens[i])
+	}
+
+	if item.Test != nil {
+		for i := range item.Test.Tokens {
+			checkToken(&item.Test.Tokens[i])
+		}
+		if item.Test.Setup != nil {
+			findPrevTokenInSetupClause(item.Test.Setup, pos, best, bestEnd)
+		}
+	}
+
+	if item.Group != nil {
+		for i := range item.Group.Tokens {
+			checkToken(&item.Group.Tokens[i])
+		}
+		if item.Group.Setup != nil {
+			findPrevTokenInSetupClause(item.Group.Setup, pos, best, bestEnd)
+		}
+		for _, child := range item.Group.Items {
+			findPrevTokenInTestOrGroup(child, pos, best, bestEnd)
+		}
+	}
+}
+
+// findPrevTokenInSetupClause searches for previous token in a setup clause.
+func findPrevTokenInSetupClause(setup *scaf.SetupClause, pos lexer.Position, best **lexer.Token, bestEnd *lexer.Position) {
+	checkToken := func(tok *lexer.Token) {
+		// Skip whitespace and comments
+		if tok.Type == scaf.TokenWhitespace || tok.Type == scaf.TokenComment {
+			return
+		}
+		if !tokenEndsBefore(tok, pos) {
+			return
+		}
+		tokEnd := lexer.Position{
+			Line:   tok.Pos.Line,
+			Column: tok.Pos.Column + len(tok.Value),
+		}
+		if *best == nil ||
+			tokEnd.Line > bestEnd.Line ||
+			(tokEnd.Line == bestEnd.Line && tokEnd.Column > bestEnd.Column) {
+			*best = tok
+			*bestEnd = tokEnd
+		}
+	}
+
+	for i := range setup.Tokens {
+		checkToken(&setup.Tokens[i])
+	}
+
+	if setup.Named != nil {
+		for i := range setup.Named.Tokens {
+			checkToken(&setup.Named.Tokens[i])
+		}
+	}
+}
+
 // TokenContext provides context about what kind of position we're at.
 type TokenContext struct {
 	// Token is the token at the cursor position (nil if between tokens).
@@ -475,6 +673,9 @@ func GetTokenContext(f *AnalyzedFile, pos lexer.Position) *TokenContext {
 
 	// Find the token at position
 	ctx.Token = TokenAtPosition(f, pos)
+
+	// Find the previous token (before cursor position)
+	ctx.PrevToken = PrevTokenAtPosition(f, pos)
 
 	// Find the containing node
 	ctx.Node = NodeAtPosition(f, pos)
