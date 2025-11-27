@@ -77,13 +77,36 @@ func (l *LSPFileLoader) ResolveImportPath(basePath, importPath string) string {
 	// Resolve the import path relative to the base directory
 	resolved := filepath.Join(baseDir, importPath)
 
-	// Add .scaf extension if not present
-	if !strings.HasSuffix(resolved, ".scaf") {
-		resolved += ".scaf"
-	}
-
 	// Clean the path to resolve .. and .
 	resolved = filepath.Clean(resolved)
+
+	// Try the path as-is first (for absolute paths or paths with extension)
+	if _, err := os.Stat(resolved); err == nil {
+		return resolved
+	}
+
+	// If no .scaf extension, try finding the file with extensions
+	if !strings.HasSuffix(resolved, ".scaf") {
+		// Try .scaf first
+		withScaf := resolved + ".scaf"
+		if _, err := os.Stat(withScaf); err == nil {
+			return withScaf
+		}
+
+		// Try dialect-specific extensions (e.g., .cypher.scaf, .sql.scaf)
+		// by globbing for any *.scaf file matching the base name
+		dir := filepath.Dir(resolved)
+		base := filepath.Base(resolved)
+		pattern := filepath.Join(dir, base+"*.scaf")
+
+		matches, err := filepath.Glob(pattern)
+		if err == nil && len(matches) == 1 {
+			return matches[0]
+		}
+
+		// Fall back to adding .scaf extension (even if file doesn't exist)
+		return withScaf
+	}
 
 	return resolved
 }

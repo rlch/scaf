@@ -202,6 +202,69 @@ query GetUser ` + "`MATCH (u:User {id: $id}) RETURN u`" + `
 	}
 }
 
+func TestLSPFileLoader_ResolveImportPath_DialectExtension(t *testing.T) {
+	t.Parallel()
+
+	// Create temp directory with a dialect-specific file
+	tmpDir := t.TempDir()
+	sharedDir := filepath.Join(tmpDir, "shared")
+	if err := os.MkdirAll(sharedDir, 0755); err != nil {
+		t.Fatalf("Failed to create shared dir: %v", err)
+	}
+
+	// Create fixtures.cypher.scaf (not fixtures.scaf)
+	fixturesFile := filepath.Join(sharedDir, "fixtures.cypher.scaf")
+	if err := os.WriteFile(fixturesFile, []byte("query Test `test`"), 0644); err != nil {
+		t.Fatalf("Failed to create fixtures file: %v", err)
+	}
+
+	logger := zap.NewNop()
+	loader := lsp.NewLSPFileLoader(logger, tmpDir)
+
+	// Resolve import path without extension
+	basePath := filepath.Join(tmpDir, "main.scaf")
+	result := loader.ResolveImportPath(basePath, "./shared/fixtures")
+
+	// Should resolve to the .cypher.scaf file
+	if result != fixturesFile {
+		t.Errorf("ResolveImportPath() = %q, want %q", result, fixturesFile)
+	}
+}
+
+func TestLSPFileLoader_ResolveImportPath_PreferPlainScaf(t *testing.T) {
+	t.Parallel()
+
+	// Create temp directory with both .scaf and .cypher.scaf files
+	tmpDir := t.TempDir()
+	sharedDir := filepath.Join(tmpDir, "shared")
+	if err := os.MkdirAll(sharedDir, 0755); err != nil {
+		t.Fatalf("Failed to create shared dir: %v", err)
+	}
+
+	// Create both files
+	plainFile := filepath.Join(sharedDir, "fixtures.scaf")
+	if err := os.WriteFile(plainFile, []byte("query Test `test`"), 0644); err != nil {
+		t.Fatalf("Failed to create plain fixtures file: %v", err)
+	}
+
+	dialectFile := filepath.Join(sharedDir, "fixtures.cypher.scaf")
+	if err := os.WriteFile(dialectFile, []byte("query Test `test`"), 0644); err != nil {
+		t.Fatalf("Failed to create dialect fixtures file: %v", err)
+	}
+
+	logger := zap.NewNop()
+	loader := lsp.NewLSPFileLoader(logger, tmpDir)
+
+	// Resolve import path without extension
+	basePath := filepath.Join(tmpDir, "main.scaf")
+	result := loader.ResolveImportPath(basePath, "./shared/fixtures")
+
+	// Should prefer .scaf over .cypher.scaf
+	if result != plainFile {
+		t.Errorf("ResolveImportPath() = %q, want %q (should prefer .scaf)", result, plainFile)
+	}
+}
+
 func TestLSPFileLoader_InvalidatePath(t *testing.T) {
 	t.Parallel()
 
