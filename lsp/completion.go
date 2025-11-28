@@ -37,7 +37,9 @@ func (s *Server) Completion(_ context.Context, params *protocol.CompletionParams
 	s.logger.Debug("Completion context",
 		zap.String("kind", string(cc.Kind)),
 		zap.String("prefix", cc.Prefix),
-		zap.String("moduleAlias", cc.ModuleAlias))
+		zap.String("moduleAlias", cc.ModuleAlias),
+		zap.String("inScope", cc.InScope),
+		zap.Bool("inTest", cc.InTest))
 
 	// Dispatch to appropriate completion handler
 	var items []protocol.CompletionItem
@@ -59,7 +61,9 @@ func (s *Server) Completion(_ context.Context, params *protocol.CompletionParams
 	}
 
 	// Filter by prefix
-	if cc.Prefix != "" {
+	// Skip filtering for return fields when prefix contains a dot (e.g., "u.")
+	// because completeReturnFields already handles prefix matching internally
+	if cc.Prefix != "" && !(cc.Kind == CompletionKindReturnField && strings.Contains(cc.Prefix, ".")) {
 		items = filterByPrefix(items, cc.Prefix)
 	}
 
@@ -320,13 +324,20 @@ func (s *Server) handleDotCompletion(cc *CompletionContext, doc *Document, af *a
 		identValue = s.extractIdentifierBeforeDot(doc.Content, pos.Line-1, pos.Column-1)
 	}
 
-	// Check if it's an import alias
+	// Check if it's an import alias - for module.function completion in setup
 	if identValue != "" {
 		if _, ok := af.Symbols.Imports[identValue]; ok {
 			cc.ModuleAlias = identValue
 			cc.Prefix = "" // Reset prefix - we're after the dot
 			return CompletionKindSetupFunction
 		}
+	}
+
+	// If we're in a test, dot could be for return field property access (e.g., "u." -> "u.name")
+	// Set the prefix to include the identifier and dot so completeReturnFields can handle it
+	if cc.InTest && identValue != "" {
+		cc.Prefix = identValue + "."
+		return CompletionKindReturnField
 	}
 
 	return CompletionKindNone
@@ -427,27 +438,102 @@ func (s *Server) completeQueryNames(doc *Document, _ *CompletionContext) []proto
 	return items
 }
 
+// keywordSnippet defines a keyword completion with its snippet.
+type keywordSnippet struct {
+	label      string
+	detail     string
+	snippet    string
+	doc        string
+}
+
 // completeKeywords returns keyword completions based on context.
 func (s *Server) completeKeywords(cc *CompletionContext) []protocol.CompletionItem {
-	var keywords []string
+	var snippets []keywordSnippet
 
 	if cc.InScope == "" {
-		// Top level
-		keywords = []string{"query", "import", "setup", "teardown"}
+		// Top level keywords with snippets
+		snippets = []keywordSnippet{
+			{
+				label:   "query",
+				detail:  "Define a new query",
+				snippet: "query ${1:QueryName} `${2:MATCH (n) RETURN n}`",
+				doc:     "Defines a named database query that can be tested.",
+			},
+			{
+				label:   "import",
+				detail:  "Import a module",
+				snippet: "import ${1:alias} \"${2:./path/to/module}\"",
+				doc:     "Imports queries and setup functions from another .scaf file.",
+			},
+			{
+				label:   "setup",
+				detail:  "Global setup",
+				snippet: "setup ${1|`query`,$module,$module.Query()|}",
+				doc:     "Setup to run before all tests in this file.",
+			},
+			{
+				label:   "teardown",
+				detail:  "Global teardown",
+				snippet: "teardown `${1:MATCH (n) DETACH DELETE n}`",
+				doc:     "Teardown to run after all tests in this file.",
+			},
+		}
 	} else if cc.InTest {
 		// Inside test
-		keywords = []string{"setup", "assert"}
+		snippets = []keywordSnippet{
+			{
+				label:   "setup",
+				detail:  "Test-specific setup",
+				snippet: "setup ${1|$module.Query(),$module|}",
+				doc:     "Setup to run before this specific test.",
+			},
+			{
+				label:   "assert",
+				detail:  "Add assertion query",
+				snippet: "assert ${1:QueryName}(${2:params}) {\n\t$0\n}",
+				doc:     "Assert the results of another query after the main query runs.",
+			},
+		}
 	} else {
 		// Inside scope, not in test
-		keywords = []string{"test", "group", "setup"}
+		snippets = []keywordSnippet{
+			{
+				label:   "test",
+				detail:  "Define a test case",
+				snippet: "test \"${1:test name}\" {\n\t${2:\\$param: value}\n\t${3:field: expected}\n}",
+				doc:     "Defines a test case with inputs and expected outputs.",
+			},
+			{
+				label:   "group",
+				detail:  "Group related tests",
+				snippet: "group \"${1:group name}\" {\n\t${0}\n}",
+				doc:     "Groups related test cases together. Can have its own setup/teardown.",
+			},
+			{
+				label:   "setup",
+				detail:  "Scope-level setup",
+				snippet: "setup ${1|$module.Query(),$module|}",
+				doc:     "Setup to run before all tests in this scope.",
+			},
+		}
 	}
 
-	items := make([]protocol.CompletionItem, 0, len(keywords))
-	for _, kw := range keywords {
-		items = append(items, protocol.CompletionItem{
-			Label: kw,
-			Kind:  protocol.CompletionItemKindKeyword,
-		})
+	items := make([]protocol.CompletionItem, 0, len(snippets))
+	for _, ks := range snippets {
+		item := protocol.CompletionItem{
+			Label:            ks.label,
+			Kind:             protocol.CompletionItemKindKeyword,
+			Detail:           ks.detail,
+			InsertText:       ks.snippet,
+			InsertTextFormat: protocol.InsertTextFormatSnippet,
+		}
+		if ks.doc != "" {
+			item.Documentation = &protocol.MarkupContent{
+				Kind:  protocol.Markdown,
+				Value: ks.doc,
+			}
+		}
+		items = append(items, item)
 	}
 	return items
 }
@@ -498,15 +584,52 @@ func (s *Server) completeReturnFields(doc *Document, cc *CompletionContext) []pr
 		return nil
 	}
 
+	// Check if the prefix contains a dot (e.g., "u." or "u.na")
+	// If so, we need to match the prefix and show only the property part
+	var prefixBase string // e.g., "u" from "u." or "u.na"
+	var prefixProp string // e.g., "" from "u." or "na" from "u.na"
+	if dotIdx := strings.LastIndex(cc.Prefix, "."); dotIdx >= 0 {
+		prefixBase = cc.Prefix[:dotIdx]
+		prefixProp = cc.Prefix[dotIdx+1:]
+	}
+
 	items := make([]protocol.CompletionItem, 0, len(metadata.Returns))
 	for _, ret := range metadata.Returns {
+		// Use the full expression (e.g., "u.name") as the base
+		// If there's an alias, use that instead (it's the actual column name)
+		fullExpr := ret.Expression
+		if ret.Alias != "" {
+			fullExpr = ret.Alias
+		}
+
+		// Determine label and insertText based on whether user typed a prefix with dot
+		var label, insertText string
+		if prefixBase != "" {
+			// User typed something like "u." - check if this expression starts with "u."
+			if !strings.HasPrefix(fullExpr, prefixBase+".") {
+				continue // This field doesn't match the prefix base
+			}
+			// Extract just the property part after the prefix
+			propPart := fullExpr[len(prefixBase)+1:]
+			// Filter by property prefix if any
+			if prefixProp != "" && !strings.HasPrefix(strings.ToLower(propPart), strings.ToLower(prefixProp)) {
+				continue
+			}
+			label = propPart
+			insertText = propPart + ": "
+		} else {
+			// No dot prefix - show full expression
+			label = fullExpr
+			insertText = fullExpr + ": "
+		}
+
 		item := protocol.CompletionItem{
-			Label:      ret.Name,
+			Label:      label,
 			Kind:       protocol.CompletionItemKindField,
 			Detail:     "return field",
-			InsertText: ret.Name + ": ",
+			InsertText: insertText,
 		}
-		if ret.Expression != ret.Name {
+		if ret.Alias != "" && ret.Expression != ret.Alias {
 			item.Documentation = &protocol.MarkupContent{
 				Kind:  protocol.Markdown,
 				Value: "Expression: `" + ret.Expression + "`",
@@ -658,7 +781,8 @@ func extractPrefix(text string) string {
 
 	for i := end - 1; i >= 0; i-- {
 		c := rune(text[i])
-		if unicode.IsLetter(c) || unicode.IsDigit(c) || c == '_' || c == '$' {
+		// Include dots to support "u.name" style prefixes for return field completion
+		if unicode.IsLetter(c) || unicode.IsDigit(c) || c == '_' || c == '$' || c == '.' {
 			start = i
 		} else {
 			break

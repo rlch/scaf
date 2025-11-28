@@ -48,9 +48,9 @@ func (s *Server) Definition(_ context.Context, params *protocol.DefinitionParams
 		return []protocol.Location{*importDef}, nil
 	}
 
-	// 3. Check if we're on a named setup call (go to query or setup definition)
-	if namedSetupDef := s.findNamedSetupDefinition(doc, tokenCtx); namedSetupDef != nil {
-		return []protocol.Location{*namedSetupDef}, nil
+	// 3. Check if we're on a setup call (go to query definition)
+	if setupCallDef := s.findSetupCallDefinition(doc, tokenCtx); setupCallDef != nil {
+		return []protocol.Location{*setupCallDef}, nil
 	}
 
 	// 4. Check if we're on a parameter reference ($param in test)
@@ -61,6 +61,11 @@ func (s *Server) Definition(_ context.Context, params *protocol.DefinitionParams
 	// 5. Check if we're on an assert query name reference
 	if assertDef := s.findAssertQueryDefinition(doc, tokenCtx); assertDef != nil {
 		return []protocol.Location{*assertDef}, nil
+	}
+
+	// 6. Check if we're on a return field reference (u.name in test)
+	if returnFieldDef := s.findReturnFieldDefinition(doc, tokenCtx); returnFieldDef != nil {
+		return []protocol.Location{*returnFieldDef}, nil
 	}
 
 	return nil, nil
@@ -121,55 +126,84 @@ func queryNameRange(q *scaf.Query) protocol.Range {
 	}
 }
 
-// findImportDefinition checks if the position is on an import alias reference and returns its definition.
+// findImportDefinition checks if the position is on a module reference and returns the module file's location.
 func (s *Server) findImportDefinition(doc *Document, tokenCtx *analysis.TokenContext) *protocol.Location {
 	if doc.Analysis.Suite == nil {
 		return nil
 	}
 
-	// Check if we're on a NamedSetup node and the token is the module name
-	if ns, ok := tokenCtx.Node.(*scaf.NamedSetup); ok {
-		if ns.Module != nil && tokenCtx.Token != nil && tokenCtx.Token.Value == *ns.Module {
-			// Look up the import by module name
-			if imp, ok := doc.Analysis.Symbols.Imports[*ns.Module]; ok {
-				return &protocol.Location{
-					URI:   doc.URI,
-					Range: spanToRange(imp.Span),
-				}
-			}
+	var moduleName string
+
+	// Check if we're on a SetupClause with just a module reference (setup fixtures)
+	if clause, ok := tokenCtx.Node.(*scaf.SetupClause); ok && clause.Module != nil {
+		if tokenCtx.Token != nil && tokenCtx.Token.Value == *clause.Module {
+			moduleName = *clause.Module
 		}
 	}
 
-	return nil
-}
+	// Check if we're on a SetupItem with just a module reference (fixtures in block)
+	if item, ok := tokenCtx.Node.(*scaf.SetupItem); ok && item.Module != nil {
+		if tokenCtx.Token != nil && tokenCtx.Token.Value == *item.Module {
+			moduleName = *item.Module
+		}
+	}
 
-// findNamedSetupDefinition finds the definition of a named setup call.
-// This navigates to the query or setup function being called.
-func (s *Server) findNamedSetupDefinition(doc *Document, tokenCtx *analysis.TokenContext) *protocol.Location {
-	if doc.Analysis.Suite == nil {
+	// Check if we're on a SetupCall node and the token is the module name
+	if call, ok := tokenCtx.Node.(*scaf.SetupCall); ok {
+		if tokenCtx.Token != nil && tokenCtx.Token.Value == call.Module {
+			moduleName = call.Module
+		}
+	}
+
+	if moduleName == "" {
 		return nil
 	}
 
-	// Check if we're on a NamedSetup node
-	ns, ok := tokenCtx.Node.(*scaf.NamedSetup)
+	// Look up the import by module name
+	imp, ok := doc.Analysis.Symbols.Imports[moduleName]
 	if !ok {
 		return nil
 	}
 
-	// Check if the token is the function name (not the module)
-	if tokenCtx.Token != nil && tokenCtx.Token.Value == ns.Name {
-		// If no module, look for local query
-		if ns.Module == nil {
-			if q, ok := doc.Analysis.Symbols.Queries[ns.Name]; ok {
-				return &protocol.Location{
-					URI:   doc.URI,
-					Range: queryNameRange(q.Node),
-				}
-			}
-		} else {
-			// Module is specified - look up in imported file
-			return s.findCrossFileDefinition(doc, *ns.Module, ns.Name)
-		}
+	// Navigate to the imported file
+	return s.findModuleFileLocation(doc, imp.Path)
+}
+
+// findModuleFileLocation resolves an import path and returns a location at the start of the file.
+func (s *Server) findModuleFileLocation(doc *Document, importPath string) *protocol.Location {
+	if s.fileLoader == nil {
+		return nil
+	}
+
+	docPath := URIToPath(doc.URI)
+	resolvedPath := s.fileLoader.ResolveImportPath(docPath, importPath)
+
+	return &protocol.Location{
+		URI: PathToURI(resolvedPath),
+		Range: protocol.Range{
+			Start: protocol.Position{Line: 0, Character: 0},
+			End:   protocol.Position{Line: 0, Character: 0},
+		},
+	}
+}
+
+// findSetupCallDefinition finds the definition of a setup call.
+// This navigates to the query being called.
+func (s *Server) findSetupCallDefinition(doc *Document, tokenCtx *analysis.TokenContext) *protocol.Location {
+	if doc.Analysis.Suite == nil {
+		return nil
+	}
+
+	// Check if we're on a SetupCall node
+	call, ok := tokenCtx.Node.(*scaf.SetupCall)
+	if !ok {
+		return nil
+	}
+
+	// Check if the token is the query name (not the module)
+	if tokenCtx.Token != nil && tokenCtx.Token.Value == call.Query {
+		// Look up in imported file
+		return s.findCrossFileDefinition(doc, call.Module, call.Query)
 	}
 
 	return nil
@@ -287,6 +321,94 @@ func (s *Server) findAssertQueryDefinition(doc *Document, tokenCtx *analysis.Tok
 			return &protocol.Location{
 				URI:   doc.URI,
 				Range: queryNameRange(q.Node),
+			}
+		}
+	}
+
+	return nil
+}
+
+// findReturnFieldDefinition finds the definition of a return field in the query body.
+// When clicking on u.name in a test statement, this navigates to where u.name is returned in the query.
+func (s *Server) findReturnFieldDefinition(doc *Document, tokenCtx *analysis.TokenContext) *protocol.Location {
+	if doc.Analysis.Suite == nil || s.queryAnalyzer == nil {
+		return nil
+	}
+
+	// Check if we're on a Statement node with a non-parameter key (not $...)
+	stmt, ok := tokenCtx.Node.(*scaf.Statement)
+	if !ok || stmt.KeyParts == nil {
+		return nil
+	}
+
+	key := stmt.Key()
+	if len(key) == 0 || key[0] == '$' {
+		return nil // This is a parameter, not a return field
+	}
+
+	// Find the enclosing query scope
+	if tokenCtx.QueryScope == "" {
+		return nil
+	}
+
+	// Get the query for this scope
+	q, ok := doc.Analysis.Symbols.Queries[tokenCtx.QueryScope]
+	if !ok || q.Body == "" {
+		return nil
+	}
+
+	// Analyze the query to get return field info
+	metadata, err := s.queryAnalyzer.AnalyzeQuery(q.Body)
+	if err != nil {
+		s.logger.Debug("Failed to analyze query for return field definition", zap.Error(err))
+		return nil
+	}
+
+	// Find the return field in the query
+	// The key might be "u.name" or just "name" - match against both Name and Expression
+	for _, ret := range metadata.Returns {
+		if ret.Name == key || ret.Expression == key || ret.Alias == key {
+			queryNode := q.Node
+			if queryNode == nil {
+				return nil
+			}
+
+			// If we have position info for the return field, navigate to it precisely
+			if ret.Line > 0 && ret.Column > 0 {
+				// Calculate the position in the document
+				// The query body starts after "query Name `" on the query definition line
+				// Query position: line X, column Y
+				// Body starts at: column Y + len("query ") + len(Name) + len(" `") = Y + 6 + len(Name) + 2
+				queryBodyStartCol := queryNode.Pos.Column + 6 + len(q.Name) + 2 // "query " + Name + " `"
+
+				// The return field position is relative to the start of the query body
+				docLine := queryNode.Pos.Line + ret.Line - 1
+				docColumn := ret.Column
+
+				// For first line of query, add the offset
+				if ret.Line == 1 {
+					docColumn = queryBodyStartCol + ret.Column - 1
+				}
+
+				return &protocol.Location{
+					URI: doc.URI,
+					Range: protocol.Range{
+						Start: protocol.Position{
+							Line:      uint32(docLine - 1),   //nolint:gosec // Line numbers are always small
+							Character: uint32(docColumn - 1), //nolint:gosec // Column numbers are always small
+						},
+						End: protocol.Position{
+							Line:      uint32(docLine - 1),               //nolint:gosec
+							Character: uint32(docColumn - 1 + ret.Length), //nolint:gosec
+						},
+					},
+				}
+			}
+
+			// Fallback: navigate to the query name
+			return &protocol.Location{
+				URI:   doc.URI,
+				Range: queryNameRange(queryNode),
 			}
 		}
 	}

@@ -16,22 +16,21 @@ MATCH (p:Post {authorId: $authorId})
 RETURN count(p) as postCount
 `
 
-setup fixtures.SetupCleanDB()
+setup fixtures
 teardown `
 MATCH (n) DETACH DELETE n
 `
 
 // Global setup using imported fixture
 GetUser {
-	setup fixtures.SetupUsers()
-
 	// Scope setup using imported fixture
 	group "basic lookups" {
 		test "finds Alice by id" {
 			$userId: 1
 
 			u.name: "Alice"
-			u.email: "alice@example.com"
+			u.name: "hi"
+			u.email: "asdf"
 			u.age: 30
 		}
 

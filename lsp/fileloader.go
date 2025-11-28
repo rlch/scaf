@@ -197,5 +197,41 @@ func (l *LSPFileLoader) SetWorkspaceRoot(root string) {
 	l.workspaceRoot = root
 }
 
+// LoadAndAnalyzeForResolver is the CrossFileResolver interface implementation.
+// It returns nil on error instead of an error value.
+func (l *LSPFileLoader) LoadAndAnalyzeForResolver(path string) *analysis.AnalyzedFile {
+	result, err := l.LoadAndAnalyze(path)
+	if err != nil {
+		l.logger.Debug("LoadAndAnalyzeForResolver: failed to load",
+			zap.String("path", path),
+			zap.Error(err))
+		return nil
+	}
+	return result
+}
+
 // Ensure LSPFileLoader implements analysis.FileLoader.
 var _ analysis.FileLoader = (*LSPFileLoader)(nil)
+
+// LSPCrossFileResolver adapts LSPFileLoader to the CrossFileResolver interface.
+type LSPCrossFileResolver struct {
+	loader *LSPFileLoader
+}
+
+// NewLSPCrossFileResolver creates a new resolver that wraps the file loader.
+func NewLSPCrossFileResolver(loader *LSPFileLoader) *LSPCrossFileResolver {
+	return &LSPCrossFileResolver{loader: loader}
+}
+
+// ResolveImportPath implements analysis.CrossFileResolver.
+func (r *LSPCrossFileResolver) ResolveImportPath(basePath, importPath string) string {
+	return r.loader.ResolveImportPath(basePath, importPath)
+}
+
+// LoadAndAnalyze implements analysis.CrossFileResolver.
+func (r *LSPCrossFileResolver) LoadAndAnalyze(path string) *analysis.AnalyzedFile {
+	return r.loader.LoadAndAnalyzeForResolver(path)
+}
+
+// Ensure LSPCrossFileResolver implements analysis.CrossFileResolver.
+var _ analysis.CrossFileResolver = (*LSPCrossFileResolver)(nil)

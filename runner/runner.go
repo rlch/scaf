@@ -490,7 +490,7 @@ func (r *Runner) executeQuery(ctx context.Context, exec executor, query string, 
 	return err
 }
 
-// executeSetup executes a setup clause - inline, named, or block.
+// executeSetup executes a setup clause - inline, module, call, or block.
 func (r *Runner) executeSetup(ctx context.Context, exec executor, setup *scaf.SetupClause) error {
 	if setup == nil {
 		return nil
@@ -500,8 +500,12 @@ func (r *Runner) executeSetup(ctx context.Context, exec executor, setup *scaf.Se
 		return r.executeQuery(ctx, exec, *setup.Inline, nil)
 	}
 
-	if setup.Named != nil {
-		return r.executeNamedSetup(ctx, exec, setup.Named)
+	if setup.Module != nil {
+		return r.executeModuleSetup(ctx, exec, *setup.Module)
+	}
+
+	if setup.Call != nil {
+		return r.executeSetupCall(ctx, exec, setup.Call)
 	}
 
 	// Block setup - execute each item in order
@@ -515,42 +519,61 @@ func (r *Runner) executeSetup(ctx context.Context, exec executor, setup *scaf.Se
 	return nil
 }
 
-// executeSetupItem executes a single setup item (inline or named).
+// executeSetupItem executes a single setup item (inline, module, or call).
 func (r *Runner) executeSetupItem(ctx context.Context, exec executor, item *scaf.SetupItem) error {
 	if item.Inline != nil {
 		return r.executeQuery(ctx, exec, *item.Inline, nil)
 	}
 
-	if item.Named != nil {
-		return r.executeNamedSetup(ctx, exec, item.Named)
+	if item.Module != nil {
+		return r.executeModuleSetup(ctx, exec, *item.Module)
+	}
+
+	if item.Call != nil {
+		return r.executeSetupCall(ctx, exec, item.Call)
 	}
 
 	return nil
 }
 
-// executeNamedSetup resolves and executes a named setup reference.
-func (r *Runner) executeNamedSetup(ctx context.Context, exec executor, named *scaf.NamedSetup) error {
-	// Get module alias (empty string for local reference)
-	moduleAlias := ""
-	if named.Module != nil {
-		moduleAlias = *named.Module
-	}
-
-	// If no module context, we can't resolve named setups
+// executeModuleSetup runs an imported module's setup clause.
+func (r *Runner) executeModuleSetup(ctx context.Context, exec executor, moduleAlias string) error {
 	if r.modules == nil {
-		return fmt.Errorf("%w: %s", ErrNoModuleContext, named.Name)
+		return fmt.Errorf("%w: %s", ErrNoModuleContext, moduleAlias)
 	}
 
-	// Resolve the setup
-	setup, err := r.modules.ResolveSetup(moduleAlias, named.Name)
+	// Resolve the module
+	mod, err := r.modules.ResolveModule(moduleAlias)
 	if err != nil {
-		return fmt.Errorf("failed to resolve setup: %w", err)
+		return fmt.Errorf("failed to resolve module: %w", err)
 	}
 
-	// Build params from the setup call
+	// Get and execute the module's setup clause
+	modSetup := mod.GetSetup()
+	if modSetup == nil {
+		return fmt.Errorf("module %q has no setup clause", moduleAlias)
+	}
+
+	// Recursively execute the module's setup
+	return r.executeSetup(ctx, exec, modSetup)
+}
+
+// executeSetupCall executes a query call from a module with parameters.
+func (r *Runner) executeSetupCall(ctx context.Context, exec executor, call *scaf.SetupCall) error {
+	if r.modules == nil {
+		return fmt.Errorf("%w: %s.%s", ErrNoModuleContext, call.Module, call.Query)
+	}
+
+	// Resolve the query from the module
+	queryBody, err := r.modules.ResolveQuery(call.Module, call.Query)
+	if err != nil {
+		return fmt.Errorf("failed to resolve query: %w", err)
+	}
+
+	// Build params from the call
 	params := make(map[string]any)
 
-	for _, p := range named.Params {
+	for _, p := range call.Params {
 		key := p.Name
 		// Strip $ prefix if present
 		if len(key) > 0 && key[0] == '$' {
@@ -560,8 +583,8 @@ func (r *Runner) executeNamedSetup(ctx context.Context, exec executor, named *sc
 		params[key] = p.Value.ToGo()
 	}
 
-	// Execute the setup query with the provided params
-	return r.executeQuery(ctx, exec, setup.Query, params)
+	// Execute the query with the provided params
+	return r.executeQuery(ctx, exec, queryBody, params)
 }
 
 func (r *Runner) emitError(

@@ -32,6 +32,7 @@ func DefaultRules() []*Rule {
 		duplicateQueryRule,
 		duplicateImportRule,
 		undefinedAssertQueryRule,
+		undefinedSetupQueryRule, // Cross-file validation
 
 		// Warning-level checks.
 		unusedImportRule,
@@ -43,6 +44,7 @@ func DefaultRules() []*Rule {
 
 		// Hint-level checks.
 		emptyTestRule,
+		unusedQueryParamRule,
 	}
 }
 
@@ -96,13 +98,21 @@ func checkUndefinedImports(f *AnalyzedFile) {
 			return
 		}
 
-		if setup.Named != nil {
-			checkNamedSetupImport(f, setup.Named)
+		if setup.Module != nil {
+			checkSetupModuleImport(f, *setup.Module, setup.Span())
+		}
+
+		if setup.Call != nil {
+			checkSetupCallImport(f, setup.Call)
 		}
 
 		for _, item := range setup.Block {
-			if item.Named != nil {
-				checkNamedSetupImport(f, item.Named)
+			if item.Module != nil {
+				checkSetupModuleImport(f, *item.Module, item.Span())
+			}
+
+			if item.Call != nil {
+				checkSetupCallImport(f, item.Call)
 			}
 		}
 	}
@@ -130,16 +140,26 @@ func checkUndefinedImports(f *AnalyzedFile) {
 	}
 }
 
-func checkNamedSetupImport(f *AnalyzedFile, ns *scaf.NamedSetup) {
-	if ns.Module == nil {
-		return
-	}
-
-	if imp, ok := f.Symbols.Imports[*ns.Module]; !ok {
+func checkSetupModuleImport(f *AnalyzedFile, moduleAlias string, span scaf.Span) {
+	if imp, ok := f.Symbols.Imports[moduleAlias]; !ok {
 		f.Diagnostics = append(f.Diagnostics, Diagnostic{
-			Span:     ns.Span(),
+			Span:     span,
 			Severity: SeverityError,
-			Message:  "undefined import: " + *ns.Module,
+			Message:  "undefined import: " + moduleAlias,
+			Code:     "undefined-import",
+			Source:   "scaf",
+		})
+	} else {
+		imp.Used = true
+	}
+}
+
+func checkSetupCallImport(f *AnalyzedFile, call *scaf.SetupCall) {
+	if imp, ok := f.Symbols.Imports[call.Module]; !ok {
+		f.Diagnostics = append(f.Diagnostics, Diagnostic{
+			Span:     call.Span(),
+			Severity: SeverityError,
+			Message:  "undefined import: " + call.Module,
 			Code:     "undefined-import",
 			Source:   "scaf",
 		})
@@ -585,6 +605,165 @@ func checkEmptyGroups(f *AnalyzedFile) {
 
 	for _, scope := range f.Suite.Scopes {
 		checkItems(scope.Items)
+	}
+}
+
+// ----------------------------------------------------------------------------
+// Rule: undefined-setup-query
+// ----------------------------------------------------------------------------
+
+var undefinedSetupQueryRule = &Rule{
+	Name:     "undefined-setup-query",
+	Doc:      "Reports setup calls that reference queries not found in the imported module.",
+	Severity: SeverityError,
+	Run:      checkUndefinedSetupQueries,
+}
+
+func checkUndefinedSetupQueries(f *AnalyzedFile) {
+	if f.Suite == nil || f.Resolver == nil {
+		return // Cross-file validation requires a resolver
+	}
+
+	// Helper to check a setup call
+	checkSetupCall := func(call *scaf.SetupCall) {
+		if call == nil {
+			return
+		}
+
+		// Get the import for this module
+		imp, ok := f.Symbols.Imports[call.Module]
+		if !ok {
+			// undefined-import rule handles this
+			return
+		}
+
+		// Resolve the import path
+		importedPath := f.Resolver.ResolveImportPath(f.Path, imp.Path)
+		importedFile := f.Resolver.LoadAndAnalyze(importedPath)
+		if importedFile == nil || importedFile.Symbols == nil {
+			// Can't load/analyze the file - don't report error since file might just not exist yet
+			return
+		}
+
+		// Check if the query exists in the imported module
+		if _, ok := importedFile.Symbols.Queries[call.Query]; !ok {
+			// Build list of available queries for better error message
+			var available []string
+			for name := range importedFile.Symbols.Queries {
+				available = append(available, name)
+			}
+
+			msg := "undefined query in module " + call.Module + ": " + call.Query
+			if len(available) > 0 {
+				msg += " (available: " + strings.Join(available, ", ") + ")"
+			}
+
+			f.Diagnostics = append(f.Diagnostics, Diagnostic{
+				Span:     call.Span(),
+				Severity: SeverityError,
+				Message:  msg,
+				Code:     "undefined-setup-query",
+				Source:   "scaf",
+			})
+		}
+	}
+
+	// Helper to check a setup clause
+	checkSetup := func(setup *scaf.SetupClause) {
+		if setup == nil {
+			return
+		}
+
+		checkSetupCall(setup.Call)
+
+		for _, item := range setup.Block {
+			checkSetupCall(item.Call)
+		}
+	}
+
+	// Check test/group items recursively
+	var checkItems func([]*scaf.TestOrGroup)
+	checkItems = func(items []*scaf.TestOrGroup) {
+		for _, item := range items {
+			if item.Test != nil {
+				checkSetup(item.Test.Setup)
+			}
+			if item.Group != nil {
+				checkSetup(item.Group.Setup)
+				checkItems(item.Group.Items)
+			}
+		}
+	}
+
+	// Check global setup
+	checkSetup(f.Suite.Setup)
+
+	// Check all scopes
+	for _, scope := range f.Suite.Scopes {
+		checkSetup(scope.Setup)
+		checkItems(scope.Items)
+	}
+}
+
+// ----------------------------------------------------------------------------
+// Rule: unused-query-param
+// ----------------------------------------------------------------------------
+
+var unusedQueryParamRule = &Rule{
+	Name:     "unused-query-param",
+	Doc:      "Reports query parameters that are never provided in any test.",
+	Severity: SeverityHint,
+	Run:      checkUnusedQueryParams,
+}
+
+func checkUnusedQueryParams(f *AnalyzedFile) {
+	if f.Suite == nil {
+		return
+	}
+
+	for _, scope := range f.Suite.Scopes {
+		query, ok := f.Symbols.Queries[scope.QueryName]
+		if !ok {
+			continue // Already reported as undefined-query.
+		}
+
+		if len(query.Params) == 0 {
+			continue // No parameters to check.
+		}
+
+		// Collect all parameters provided across all tests in this scope.
+		providedParams := make(map[string]bool)
+		collectProvidedParams(scope.Items, providedParams)
+
+		// Report parameters that exist in query but never appear in any test.
+		for _, param := range query.Params {
+			if !providedParams[param] {
+				f.Diagnostics = append(f.Diagnostics, Diagnostic{
+					Span:     scope.Span(),
+					Severity: SeverityHint,
+					Message:  "query parameter $" + param + " is never provided in any test within this scope",
+					Code:     "unused-query-param",
+					Source:   "scaf",
+				})
+			}
+		}
+	}
+}
+
+func collectProvidedParams(items []*scaf.TestOrGroup, provided map[string]bool) {
+	for _, item := range items {
+		if item.Test != nil {
+			for _, stmt := range item.Test.Statements {
+				key := stmt.Key()
+				if paramName, ok := strings.CutPrefix(key, "$"); ok {
+					provided[paramName] = true
+				}
+			}
+		}
+
+		if item.Group != nil {
+			collectProvidedParams(item.Group.Items, provided)
+		}
 	}
 }
 

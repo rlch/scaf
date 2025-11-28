@@ -123,8 +123,10 @@ func (f *formatter) formatSetupClause(s *SetupClause) {
 	switch {
 	case s.Inline != nil:
 		f.writeLine("setup " + f.rawString(*s.Inline))
-	case s.Named != nil:
-		f.writeLine("setup " + f.formatNamedSetupCall(s.Named))
+	case s.Module != nil:
+		f.writeLine("setup " + *s.Module)
+	case s.Call != nil:
+		f.writeLine("setup " + f.formatSetupCall(s.Call))
 	case len(s.Block) > 0:
 		f.formatSetupBlock(s.Block)
 	}
@@ -155,25 +157,26 @@ func (f *formatter) formatSetupItem(item *SetupItem) string {
 		return f.rawString(*item.Inline)
 	}
 
-	if item.Named != nil {
-		return f.formatNamedSetupCall(item.Named)
+	if item.Module != nil {
+		return *item.Module
+	}
+
+	if item.Call != nil {
+		return f.formatSetupCall(item.Call)
 	}
 
 	return ""
 }
 
-func (f *formatter) formatNamedSetupCall(ns *NamedSetup) string {
+func (f *formatter) formatSetupCall(c *SetupCall) string {
 	var b strings.Builder
 
-	if ns.Module != nil {
-		b.WriteString(*ns.Module)
-		b.WriteString(".")
-	}
-
-	b.WriteString(ns.Name)
+	b.WriteString(c.Module)
+	b.WriteString(".")
+	b.WriteString(c.Query)
 	b.WriteString("(")
 
-	for i, p := range ns.Params {
+	for i, p := range c.Params {
 		if i > 0 {
 			b.WriteString(", ")
 		}

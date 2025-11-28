@@ -54,6 +54,7 @@ type Document struct {
 // If empty, defaults to "cypher".
 func NewServer(client protocol.Client, logger *zap.Logger, dialectName string) *Server {
 	fileLoader := NewLSPFileLoader(logger, "")
+	resolver := NewLSPCrossFileResolver(fileLoader)
 
 	// Default to cypher if not specified
 	if dialectName == "" {
@@ -72,7 +73,7 @@ func NewServer(client protocol.Client, logger *zap.Logger, dialectName string) *
 		client:        client,
 		logger:        logger,
 		documents:     make(map[protocol.DocumentURI]*Document),
-		analyzer:      analysis.NewAnalyzer(fileLoader),
+		analyzer:      analysis.NewAnalyzerWithResolver(fileLoader, resolver),
 		fileLoader:    fileLoader,
 		dialectName:   dialectName,
 		queryAnalyzer: queryAnalyzer,
@@ -110,9 +111,43 @@ func (s *Server) Initialize(_ context.Context, params *protocol.InitializeParams
 				TriggerCharacters: []string{"$", "."},
 				ResolveProvider:   false,
 			},
-			// TODO: Add more capabilities as we implement them
-			// ReferencesProvider: true,
-			// DocumentSymbolProvider: true,
+			// Document symbol support for outline view
+			DocumentSymbolProvider: true,
+			// Document highlight support
+			DocumentHighlightProvider: true,
+			// Find all references
+			ReferencesProvider: true,
+			// Rename support
+			RenameProvider: &protocol.RenameOptions{
+				PrepareProvider: true,
+			},
+			// Code actions (quick fixes)
+			CodeActionProvider: &protocol.CodeActionOptions{
+				CodeActionKinds: []protocol.CodeActionKind{
+					protocol.QuickFix,
+				},
+			},
+			// Document links (clickable import paths)
+			DocumentLinkProvider: &protocol.DocumentLinkOptions{
+				ResolveProvider: false,
+			},
+			// Workspace symbol search
+			WorkspaceSymbolProvider: true,
+			// Folding ranges for code folding
+			FoldingRangeProvider: true,
+			// Signature help for setup calls
+			SignatureHelpProvider: &protocol.SignatureHelpOptions{
+				TriggerCharacters:   []string{"(", ","},
+				RetriggerCharacters: []string{","},
+			},
+			// Document formatting
+			DocumentFormattingProvider: true,
+			// Code lens for running tests
+			CodeLensProvider: &protocol.CodeLensOptions{
+				ResolveProvider: false,
+			},
+			// Note: InlayHintProvider requires LSP 3.17+ protocol types
+			// not available in go.lsp.dev/protocol v0.12.0
 		},
 		ServerInfo: &protocol.ServerInfo{
 			Name:    "scaf-lsp",
@@ -158,7 +193,9 @@ func (s *Server) DidOpen(ctx context.Context, params *protocol.DidOpenTextDocume
 	}
 
 	// Analyze the document
-	doc.Analysis = s.analyzer.Analyze(string(params.TextDocument.URI), []byte(params.TextDocument.Text))
+	// Use the file system path (not URI) for proper import resolution
+	docPath := URIToPath(params.TextDocument.URI)
+	doc.Analysis = s.analyzer.Analyze(docPath, []byte(params.TextDocument.Text))
 
 	// If parsing succeeded, save as last valid analysis for completion fallback
 	if doc.Analysis.ParseError == nil {
@@ -194,8 +231,9 @@ func (s *Server) DidChange(ctx context.Context, params *protocol.DidChangeTextDo
 		doc.Content = params.ContentChanges[len(params.ContentChanges)-1].Text
 		doc.Version = params.TextDocument.Version
 
-		// Re-analyze
-		doc.Analysis = s.analyzer.Analyze(string(params.TextDocument.URI), []byte(doc.Content))
+		// Re-analyze (use file system path for proper import resolution)
+		docPath := URIToPath(params.TextDocument.URI)
+		doc.Analysis = s.analyzer.Analyze(docPath, []byte(doc.Content))
 
 		// If parsing succeeded, save as last valid analysis for completion fallback
 		if doc.Analysis.ParseError == nil {

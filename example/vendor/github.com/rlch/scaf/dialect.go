@@ -163,4 +163,13 @@ type ReturnInfo struct {
 
 	// IsWildcard indicates this is a wildcard (*) return.
 	IsWildcard bool
+
+	// Line is the 1-indexed line number in the query where this return field appears.
+	Line int
+
+	// Column is the 1-indexed column in the query where this return field starts.
+	Column int
+
+	// Length is the length of the return field expression in characters.
+	Length int
 }

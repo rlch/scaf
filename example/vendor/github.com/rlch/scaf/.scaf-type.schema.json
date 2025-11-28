@@ -1,0 +1,143 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://raw.githubusercontent.com/rlch/scaf/main/.scaf-type.schema.json",
+  "title": "Scaf Schema",
+  "description": "Schema definition for .scaf-schema.yaml files. Defines database models, fields, and relationships for scaf code generation and LSP support.",
+  "type": "object",
+  "properties": {
+    "models": {
+      "type": "object",
+      "description": "Map of model names to their definitions. Models represent database entities like nodes, relationships, or tables.",
+      "additionalProperties": {
+        "$ref": "#/definitions/model"
+      }
+    }
+  },
+  "required": ["models"],
+  "additionalProperties": false,
+  "definitions": {
+    "model": {
+      "type": "object",
+      "description": "A database entity (node, relationship, table, etc.).",
+      "properties": {
+        "fields": {
+          "type": "object",
+          "description": "Properties/columns on this model.",
+          "additionalProperties": {
+            "$ref": "#/definitions/field"
+          }
+        },
+        "relationships": {
+          "type": "object",
+          "description": "Edges from this model to other models. Only applicable for node-like models in graph databases.",
+          "additionalProperties": {
+            "$ref": "#/definitions/relationship"
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "field": {
+      "type": "object",
+      "description": "A property/column on a model.",
+      "properties": {
+        "type": {
+          "type": "string",
+          "description": "The field's Go-style type. Supports primitives (string, int, bool, float64), slices ([]T), arrays ([N]T), pointers (*T), maps (map[K]V), and named types (pkg.Name).",
+          "examples": [
+            "string",
+            "int",
+            "int64",
+            "float64",
+            "bool",
+            "[]string",
+            "[5]int",
+            "*int",
+            "map[string]int",
+            "time.Time",
+            "uuid.UUID"
+          ]
+        },
+        "required": {
+          "type": "boolean",
+          "description": "Whether the field must have a value. Default is false.",
+          "default": false
+        },
+        "unique": {
+          "type": "boolean",
+          "description": "Whether this field has a uniqueness constraint. When a query filters on a unique field with equality, it returns at most one row.",
+          "default": false
+        }
+      },
+      "required": ["type"],
+      "additionalProperties": false
+    },
+    "relationship": {
+      "type": "object",
+      "description": "An edge from one model to another.",
+      "properties": {
+        "rel_type": {
+          "type": "string",
+          "description": "The relationship type in the database (e.g., 'FRIENDS', 'ACTED_IN')."
+        },
+        "target": {
+          "type": "string",
+          "description": "The target model name. For shorthand relationships: the target node (e.g., 'Person'). For relationship structs: the relationship model (e.g., 'ActedIn')."
+        },
+        "many": {
+          "type": "boolean",
+          "description": "Whether this is a one-to-many relationship. true = Many[T], false = One[T].",
+          "default": false
+        },
+        "direction": {
+          "type": "string",
+          "description": "The relationship direction.",
+          "enum": ["outgoing", "incoming"]
+        }
+      },
+      "required": ["rel_type", "target", "direction"],
+      "additionalProperties": false
+    }
+  },
+  "examples": [
+    {
+      "models": {
+        "Person": {
+          "fields": {
+            "id": {
+              "type": "string",
+              "required": true,
+              "unique": true
+            },
+            "name": {
+              "type": "string",
+              "required": true
+            },
+            "born": {
+              "type": "int"
+            }
+          },
+          "relationships": {
+            "ActedIn": {
+              "rel_type": "ACTED_IN",
+              "target": "Movie",
+              "many": true,
+              "direction": "outgoing"
+            }
+          }
+        },
+        "Movie": {
+          "fields": {
+            "title": {
+              "type": "string",
+              "required": true
+            },
+            "released": {
+              "type": "int"
+            }
+          }
+        }
+      }
+    }
+  ]
+}

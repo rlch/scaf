@@ -132,52 +132,53 @@ type Query struct {
 // Setup-related nodes
 // =============================================================================
 
-// SetupClause represents a setup: inline query, named reference, or block of items.
+// SetupClause represents a setup: inline query, module setup, query call, or block.
 // Examples:
 //
-//	setup `CREATE (:User)`                              // inline
-//	setup lesson_plan_db.SetupLessonPlanDB()            // named, no params
-//	setup fixtures.CreatePosts($n: 10, $authorId: 1)    // named with params
-//	setup { `CREATE (:User)`; SetupUsers() }            // block with multiple items
+//	setup `CREATE (:User)`                              // inline query
+//	setup fixtures                                      // module setup (runs module's setup clause)
+//	setup fixtures.CreateUser($id: 1, $name: "Alice")   // query call with params
+//	setup { fixtures; fixtures.CreateUser($id: 1) }     // block with multiple items
 type SetupClause struct {
 	NodeMeta
 	RecoveryMeta
 	Inline *string      `parser:"@RawString"`
-	Named  *NamedSetup  `parser:"| @@"`
+	Call   *SetupCall   `parser:"| @@"`
+	Module *string      `parser:"| @Ident"`
 	Block  []*SetupItem `parser:"| '{' @@* '}'"`
 }
 
 // IsComplete returns true if the setup clause has content.
 func (s *SetupClause) IsComplete() bool {
-	return s.Inline != nil || s.Named != nil || len(s.Block) > 0
+	return s.Inline != nil || s.Module != nil || s.Call != nil || len(s.Block) > 0
 }
 
 // SetupItem represents a single item in a setup block.
-// Can be either an inline query or a named setup call.
+// Can be an inline query, module setup, or query call.
 type SetupItem struct {
 	NodeMeta
 	RecoveryMeta
-	Inline *string     `parser:"@RawString"`
-	Named  *NamedSetup `parser:"| @@"`
+	Inline *string    `parser:"@RawString"`
+	Call   *SetupCall `parser:"| @@"`
+	Module *string    `parser:"| @Ident"`
 }
 
-// NamedSetup references a setup defined elsewhere (local or imported).
+// SetupCall invokes a query from a module with parameters.
 // Examples:
 //
-//	SetupLessonPlanDB()
-//	module.SetupName($param: value)
-type NamedSetup struct {
+//	fixtures.CreateUser($id: 1, $name: "Alice")
+//	db.SeedData()
+type SetupCall struct {
 	NodeMeta
 	RecoveryMeta
-	Module *string       `parser:"(@Ident Dot)?"`
-	Name   string        `parser:"@Ident '('"`
+	Module string        `parser:"@Ident Dot"`
+	Query  string        `parser:"@Ident '('"`
 	Params []*SetupParam `parser:"(@@ (Comma @@)*)? ')'"`
 }
 
-// IsComplete returns true if the named setup has all required parts.
-// For NamedSetup, if it parsed successfully, it's complete.
-func (n *NamedSetup) IsComplete() bool {
-	return n.Name != ""
+// IsComplete returns true if the setup call has all required parts.
+func (c *SetupCall) IsComplete() bool {
+	return c.Module != "" && c.Query != ""
 }
 
 // SetupParam is a parameter passed to a named setup.

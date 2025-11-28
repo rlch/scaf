@@ -70,7 +70,7 @@ type GenerateConfig struct {
 	// Package name for generated code (Go-specific)
 	Package string `yaml:"package,omitempty"`
 
-	// Schema is the path to the schema HCL file (e.g., ".scaf-schema.hcl").
+	// Schema is the path to the schema YAML file (e.g., ".scaf-schema.yaml").
 	// The schema provides type information for accurate code generation.
 	Schema string `yaml:"schema,omitempty"`
 }

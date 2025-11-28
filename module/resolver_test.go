@@ -18,7 +18,7 @@ func TestResolver_Resolve(t *testing.T) {
 	// root.scaf imports fixtures, which imports utils
 
 	utilsContent := `
-query SetupUtils ` + "`CREATE (:Utils)`" + `
+query CreateUtils ` + "`CREATE (:Utils)`" + `
 `
 	utilsPath := filepath.Join(tmpDir, "utils.scaf")
 
@@ -29,7 +29,7 @@ query SetupUtils ` + "`CREATE (:Utils)`" + `
 
 	fixturesContent := `
 import "./utils"
-query SetupFixtures ` + "`CREATE (:Fixture {n: $n})`" + `
+query CreateFixtures ` + "`CREATE (:Fixture {n: $n})`" + `
 `
 	fixturesPath := filepath.Join(tmpDir, "fixtures.scaf")
 
@@ -41,7 +41,7 @@ query SetupFixtures ` + "`CREATE (:Fixture {n: $n})`" + `
 	rootContent := `
 import fixtures "./fixtures"
 query GetUser ` + "`MATCH (u) RETURN u`" + `
-query SetupRoot ` + "`CREATE (:Root)`" + `
+query CreateRoot ` + "`CREATE (:Root)`" + `
 
 GetUser {
 	test "basic" {}
@@ -91,43 +91,44 @@ GetUser {
 		t.Errorf("AllModules count = %d, want 3", len(ctx.AllModules))
 	}
 
-	// Test setup resolution
-	t.Run("resolve local setup", func(t *testing.T) {
+	// Test module resolution
+	t.Run("resolve imported module", func(t *testing.T) {
 		t.Parallel()
 
-		setup, err := ctx.ResolveSetup("", "SetupRoot")
+		mod, err := ctx.ResolveModule("fixtures")
 		if err != nil {
-			t.Fatalf("ResolveSetup() error: %v", err)
+			t.Fatalf("ResolveModule() error: %v", err)
 		}
 
-		if setup.Query != "CREATE (:Root)" {
-			t.Errorf("Query = %q", setup.Query)
+		if mod.Path != fixturesPath {
+			t.Errorf("Path = %q, want %q", mod.Path, fixturesPath)
 		}
 	})
 
-	t.Run("resolve imported setup", func(t *testing.T) {
+	// Test query resolution
+	t.Run("resolve imported query", func(t *testing.T) {
 		t.Parallel()
 
-		setup, err := ctx.ResolveSetup("fixtures", "SetupFixtures")
+		query, err := ctx.ResolveQuery("fixtures", "CreateFixtures")
 		if err != nil {
-			t.Fatalf("ResolveSetup() error: %v", err)
+			t.Fatalf("ResolveQuery() error: %v", err)
 		}
 
-		if setup.Query != "CREATE (:Fixture {n: $n})" {
-			t.Errorf("Query = %q", setup.Query)
+		if query != "CREATE (:Fixture {n: $n})" {
+			t.Errorf("Query = %q", query)
 		}
 	})
 
-	t.Run("resolve transitive import setup", func(t *testing.T) {
+	t.Run("resolve transitive import query", func(t *testing.T) {
 		t.Parallel()
 
-		setup, err := ctx.ResolveSetup("utils", "SetupUtils")
+		query, err := ctx.ResolveQuery("utils", "CreateUtils")
 		if err != nil {
-			t.Fatalf("ResolveSetup() error: %v", err)
+			t.Fatalf("ResolveQuery() error: %v", err)
 		}
 
-		if setup.Query != "CREATE (:Utils)" {
-			t.Errorf("Query = %q", setup.Query)
+		if query != "CREATE (:Utils)" {
+			t.Errorf("Query = %q", query)
 		}
 	})
 }
@@ -230,7 +231,7 @@ func TestResolver_DiamondDependency(t *testing.T) {
 	// This is NOT a cycle and should work fine
 
 	commonContent := `
-query SetupCommon ` + "`CREATE (:Common)`" + `
+query CreateCommon ` + "`CREATE (:Common)`" + `
 `
 	commonPath := filepath.Join(tmpDir, "common.scaf")
 
@@ -241,7 +242,7 @@ query SetupCommon ` + "`CREATE (:Common)`" + `
 
 	aContent := `
 import "./common"
-query SetupA ` + "`CREATE (:A)`" + `
+query CreateA ` + "`CREATE (:A)`" + `
 `
 	aPath := filepath.Join(tmpDir, "a.scaf")
 
@@ -252,7 +253,7 @@ query SetupA ` + "`CREATE (:A)`" + `
 
 	bContent := `
 import "./common"
-query SetupB ` + "`CREATE (:B)`" + `
+query CreateB ` + "`CREATE (:B)`" + `
 `
 	bPath := filepath.Join(tmpDir, "b.scaf")
 
@@ -264,7 +265,7 @@ query SetupB ` + "`CREATE (:B)`" + `
 	rootContent := `
 import "./a"
 import "./b"
-query SetupRoot ` + "`CREATE (:Root)`" + `
+query CreateRoot ` + "`CREATE (:Root)`" + `
 `
 	rootPath := filepath.Join(tmpDir, "root.scaf")
 
@@ -342,7 +343,7 @@ func TestResolver_NestedDirectories(t *testing.T) {
 	}
 
 	helpersContent := `
-query SetupHelpers ` + "`CREATE (:Helper)`" + `
+query CreateHelpers ` + "`CREATE (:Helper)`" + `
 `
 	helpersPath := filepath.Join(libDir, "helpers.scaf")
 
@@ -353,7 +354,7 @@ query SetupHelpers ` + "`CREATE (:Helper)`" + `
 
 	fixturesContent := `
 import "./lib/helpers"
-query SetupFixtures ` + "`CREATE (:Fixture)`" + `
+query CreateFixtures ` + "`CREATE (:Fixture)`" + `
 `
 	fixturesPath := filepath.Join(sharedDir, "fixtures.scaf")
 
@@ -396,24 +397,24 @@ query GetData ` + "`MATCH (n) RETURN n`" + `
 		t.Error("Missing 'helpers' import (transitive)")
 	}
 
-	// Verify setup resolution works through nested imports
-	setup, err := ctx.ResolveSetup("helpers", "SetupHelpers")
+	// Verify query resolution works through nested imports
+	query, err := ctx.ResolveQuery("helpers", "CreateHelpers")
 	if err != nil {
-		t.Fatalf("Failed to resolve transitive setup: %v", err)
+		t.Fatalf("Failed to resolve transitive query: %v", err)
 	}
 
-	if setup.Query != "CREATE (:Helper)" {
-		t.Errorf("Setup query = %q", setup.Query)
+	if query != "CREATE (:Helper)" {
+		t.Errorf("Query = %q", query)
 	}
 }
 
-func TestResolver_SetupWithMultipleParams(t *testing.T) {
+func TestResolver_QueryWithMultipleParams(t *testing.T) {
 	t.Parallel()
 
 	tmpDir := t.TempDir()
 
 	content := `
-query SetupUserWithDetails ` + "`CREATE (:User {name: $name, email: $email, age: $age, active: $active})`" + `
+query CreateUserWithDetails ` + "`CREATE (:User {name: $name, email: $email, age: $age, active: $active})`" + `
 `
 	modulePath := filepath.Join(tmpDir, "fixtures.scaf")
 
@@ -429,27 +430,15 @@ query SetupUserWithDetails ` + "`CREATE (:User {name: $name, email: $email, age:
 		t.Fatalf("Load() error: %v", err)
 	}
 
-	setup, ok := mod.Setups["SetupUserWithDetails"]
+	query, ok := mod.Queries["CreateUserWithDetails"]
 	if !ok {
-		t.Fatal("Setup not found")
+		t.Fatal("Query not found")
 	}
 
-	// Verify all params are extracted
-	expectedParams := map[string]bool{
-		"name":   true,
-		"email":  true,
-		"age":    true,
-		"active": true,
-	}
-
-	if len(setup.Params) != len(expectedParams) {
-		t.Errorf("Params count = %d, want %d", len(setup.Params), len(expectedParams))
-	}
-
-	for _, p := range setup.Params {
-		if !expectedParams[p] {
-			t.Errorf("Unexpected param: %s", p)
-		}
+	// Verify query body contains expected params
+	expectedQuery := "CREATE (:User {name: $name, email: $email, age: $age, active: $active})"
+	if query != expectedQuery {
+		t.Errorf("Query = %q, want %q", query, expectedQuery)
 	}
 }
 
@@ -459,7 +448,7 @@ func TestResolver_AliasCollision(t *testing.T) {
 	tmpDir := t.TempDir()
 
 	// Create two different modules
-	mod1Content := `query SetupMod1 ` + "`CREATE (:Mod1)`" + `
+	mod1Content := `query CreateMod1 ` + "`CREATE (:Mod1)`" + `
 `
 	mod1Path := filepath.Join(tmpDir, "mod1.scaf")
 
@@ -468,7 +457,7 @@ func TestResolver_AliasCollision(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	mod2Content := `query SetupMod2 ` + "`CREATE (:Mod2)`" + `
+	mod2Content := `query CreateMod2 ` + "`CREATE (:Mod2)`" + `
 `
 	mod2Path := filepath.Join(tmpDir, "mod2.scaf")
 
@@ -508,7 +497,7 @@ func TestResolver_ResolveFromSuite(t *testing.T) {
 	tmpDir := t.TempDir()
 
 	// Create a fixture module
-	fixturesContent := `query SetupData ` + "`CREATE (:Data)`" + `
+	fixturesContent := `query CreateData ` + "`CREATE (:Data)`" + `
 `
 	fixturesPath := filepath.Join(tmpDir, "fixtures.scaf")
 
@@ -540,13 +529,13 @@ func TestResolver_ResolveFromSuite(t *testing.T) {
 		t.Errorf("Root path = %q, want %q", ctx.Root.Path, rootPath)
 	}
 
-	// The setup should be resolvable locally
-	setup, err := ctx.ResolveSetup("", "SetupData")
-	if err != nil {
-		t.Fatalf("Failed to resolve local setup: %v", err)
+	// The query should be accessible from the root module's Queries map
+	query, ok := ctx.Root.Queries["CreateData"]
+	if !ok {
+		t.Fatal("Query not found in root module")
 	}
 
-	if setup.Query != "CREATE (:Data)" {
-		t.Errorf("Setup query = %q", setup.Query)
+	if query != "CREATE (:Data)" {
+		t.Errorf("Query = %q", query)
 	}
 }

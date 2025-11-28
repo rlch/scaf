@@ -195,14 +195,16 @@ func isAcronym(s string) bool {
 }
 
 // inferParamType infers the Go type for a query parameter.
-// Uses the analyzer's type hint or schema lookup, otherwise defaults to "any".
+// Uses the analyzer's type (from schema-aware analysis) or falls back to schema lookup.
 func inferParamType(param scaf.ParameterInfo, schema *analysis.TypeSchema) string {
-	// If we have a type hint from the analyzer, use it
+	// If the analyzer already inferred the type from schema, use it directly
+	// (The Cypher analyzer returns Go type strings like "string", "int", "[]string")
 	if param.Type != "" {
-		return mapAnalyzerType(param.Type)
+		return param.Type
 	}
 
-	// Try to find the type from the schema by looking up fields with matching names
+	// Fallback: try to find the type from the schema by looking up fields with matching names
+	// This is a best-effort approach when the analyzer couldn't determine the model context
 	if schema != nil {
 		if fieldType := lookupFieldType(param.Name, schema); fieldType != nil {
 			return fieldType.String()
@@ -213,14 +215,15 @@ func inferParamType(param scaf.ParameterInfo, schema *analysis.TypeSchema) strin
 }
 
 // inferReturnType infers the Go type for a return field.
-// Uses the analyzer's type hint or schema lookup, otherwise defaults to "any".
+// Uses the analyzer's type (from schema-aware analysis) or falls back to schema lookup.
 func inferReturnType(ret scaf.ReturnInfo, schema *analysis.TypeSchema) string {
-	// If we have a type hint from the analyzer, use it
+	// If the analyzer already inferred the type from schema, use it directly
+	// (The Cypher analyzer returns Go type strings like "string", "int", "*User")
 	if ret.Type != "" {
-		return mapAnalyzerType(ret.Type)
+		return ret.Type
 	}
 
-	// Try to find the type from the schema using the parsed name
+	// Fallback: try to find the type from the schema using the parsed name
 	// (The analyzer already extracts the field name from expressions like "u.name")
 	if schema != nil {
 		if fieldType := lookupFieldType(ret.Name, schema); fieldType != nil {
@@ -268,28 +271,6 @@ func LookupFieldTypeInModel(modelName, fieldName string, schema *analysis.TypeSc
 	}
 
 	return nil
-}
-
-// mapAnalyzerType maps an analyzer type string to a Go type.
-func mapAnalyzerType(t string) string {
-	switch strings.ToLower(t) {
-	case "string", "text":
-		return "string"
-	case "int", "integer", "long":
-		return "int64"
-	case "float", "double", "decimal":
-		return "float64"
-	case "bool", "boolean":
-		return "bool"
-	case "date", "datetime", "timestamp":
-		return "time.Time"
-	case "list", "array":
-		return "[]any"
-	case "map", "object":
-		return "map[string]any"
-	default:
-		return "any"
-	}
 }
 
 // TypeToGoString converts an analysis.Type to a Go type string.

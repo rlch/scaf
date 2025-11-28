@@ -30,6 +30,10 @@ type AnalyzedFile struct {
 
 	// RecoveryError is the error from recovery parse (may be different from ParseError).
 	RecoveryError error
+
+	// Resolver is used for cross-file analysis (e.g., validating setup calls).
+	// May be nil if cross-file analysis is not available.
+	Resolver CrossFileResolver
 }
 
 // SymbolTable holds all named definitions in a file.

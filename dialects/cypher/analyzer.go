@@ -26,23 +26,62 @@ func NewAnalyzer() *Analyzer {
 	return &Analyzer{}
 }
 
+// variableBinding tracks a variable's binding to a model (label).
+type variableBinding struct {
+	variable string   // e.g., "u"
+	labels   []string // e.g., ["User"]
+}
+
+// queryContext holds context during query analysis.
+type queryContext struct {
+	bindings map[string]*variableBinding // variable name -> binding
+	schema   *analysis.TypeSchema
+}
+
+func newQueryContext(schema *analysis.TypeSchema) *queryContext {
+	return &queryContext{
+		bindings: make(map[string]*variableBinding),
+		schema:   schema,
+	}
+}
+
 // AnalyzeQuery parses a Cypher query and extracts metadata.
 func (a *Analyzer) AnalyzeQuery(query string) (*scaf.QueryMetadata, error) {
+	return a.analyzeQueryInternal(query, nil)
+}
+
+// AnalyzeQueryWithSchema parses a Cypher query and extracts metadata with type inference.
+// If schema is provided, it infers types for parameters and returns.
+func (a *Analyzer) AnalyzeQueryWithSchema(query string, schema *analysis.TypeSchema) (*scaf.QueryMetadata, error) {
+	return a.analyzeQueryInternal(query, schema)
+}
+
+// analyzeQueryInternal is the shared implementation for query analysis.
+func (a *Analyzer) analyzeQueryInternal(query string, schema *analysis.TypeSchema) (*scaf.QueryMetadata, error) {
 	tree, err := parseCypherQuery(query)
 	if err != nil {
 		return nil, err
 	}
 
+	ctx := newQueryContext(schema)
 	result := &scaf.QueryMetadata{
 		Parameters: []scaf.ParameterInfo{},
 		Returns:    []scaf.ReturnInfo{},
 	}
 
-	// Extract parameters
-	extractParameters(tree, result)
+	// First pass: extract variable bindings from MATCH clauses
+	extractBindings(tree, ctx)
 
-	// Extract return items
-	extractReturns(tree, result)
+	// Extract parameters with type inference
+	extractParameters(tree, result, ctx)
+
+	// Extract return items with type inference
+	extractReturns(tree, result, ctx)
+
+	// Check for unique field filters if schema is provided
+	if schema != nil {
+		result.ReturnsOne = checkUniqueFilter(tree, schema)
+	}
 
 	return result, nil
 }
@@ -92,13 +131,86 @@ func (pel *parseErrorListener) ReportAttemptingFullContext(_ antlr.Parser, _ *an
 func (pel *parseErrorListener) ReportContextSensitivity(_ antlr.Parser, _ *antlr.DFA, _, _, _ int, _ *antlr.ATNConfigSet) {
 }
 
-// extractParameters walks the tree to find all $parameters.
-func extractParameters(tree antlr.ParseTree, result *scaf.QueryMetadata) {
-	indexByKey := make(map[string]int) // map name -> index in Parameters slice
-
+// extractBindings walks the tree to find variable bindings from node patterns.
+// E.g., MATCH (u:User) binds variable "u" to label "User".
+func extractBindings(tree antlr.ParseTree, ctx *queryContext) {
 	var walk func(node antlr.Tree)
 
 	walk = func(node antlr.Tree) {
+		if nodeCtx, ok := node.(*cyphergrammar.NodePatternContext); ok {
+			extractNodeBinding(nodeCtx, ctx)
+		}
+
+		// Recursively walk children
+		if ruleCtx, ok := node.(antlr.RuleContext); ok {
+			for i := 0; i < ruleCtx.GetChildCount(); i++ {
+				if child := ruleCtx.GetChild(i); child != nil {
+					walk(child)
+				}
+			}
+		}
+	}
+
+	walk(tree)
+}
+
+// extractNodeBinding extracts variable binding from a node pattern.
+func extractNodeBinding(nodeCtx *cyphergrammar.NodePatternContext, ctx *queryContext) {
+	// Get variable name
+	var varName string
+	if symbolCtx := nodeCtx.Symbol(); symbolCtx != nil {
+		varName = symbolCtx.GetText()
+	}
+
+	if varName == "" {
+		return
+	}
+
+	// Get labels
+	var labels []string
+	if labelsCtx := nodeCtx.NodeLabels(); labelsCtx != nil {
+		for _, nameCtx := range labelsCtx.AllName() {
+			if nameCtx != nil {
+				labels = append(labels, nameCtx.GetText())
+			}
+		}
+	}
+
+	ctx.bindings[varName] = &variableBinding{
+		variable: varName,
+		labels:   labels,
+	}
+}
+
+// extractParameters walks the tree to find all $parameters.
+func extractParameters(tree antlr.ParseTree, result *scaf.QueryMetadata, ctx *queryContext) {
+	indexByKey := make(map[string]int) // map name -> index in Parameters slice
+
+	var walk func(node antlr.Tree, parentPropName string, parentLabels []string)
+
+	walk = func(node antlr.Tree, parentPropName string, parentLabels []string) {
+		// Check if this is a map pair (property: $param)
+		if mapPairCtx, ok := node.(*cyphergrammar.MapPairContext); ok {
+			propName := ""
+			if nameCtx := mapPairCtx.Name(); nameCtx != nil {
+				propName = nameCtx.GetText()
+			}
+
+			// Get labels from parent node pattern
+			labels := getParentNodeLabels(mapPairCtx, ctx)
+
+			// Walk children with property context
+			if ruleCtx, ok := node.(antlr.RuleContext); ok {
+				for i := 0; i < ruleCtx.GetChildCount(); i++ {
+					if child := ruleCtx.GetChild(i); child != nil {
+						walk(child, propName, labels)
+					}
+				}
+			}
+
+			return
+		}
+
 		if paramCtx, ok := node.(*cyphergrammar.ParameterContext); ok {
 			// Extract parameter name from Symbol() or NumLit()
 			var paramName string
@@ -118,12 +230,20 @@ func extractParameters(tree antlr.ParseTree, result *scaf.QueryMetadata) {
 				// Length includes the $ prefix
 				length := len(paramName) + 1
 
+				// Infer type from schema if we know the property and model
+				paramType := inferParameterType(parentPropName, parentLabels, ctx)
+
 				if idx, exists := indexByKey[paramName]; exists {
 					result.Parameters[idx].Count++
+					// Update type if we found one and didn't have one before
+					if paramType != "" && result.Parameters[idx].Type == "" {
+						result.Parameters[idx].Type = paramType
+					}
 				} else {
 					indexByKey[paramName] = len(result.Parameters)
 					result.Parameters = append(result.Parameters, scaf.ParameterInfo{
 						Name:     paramName,
+						Type:     paramType,
 						Position: position,
 						Line:     line,
 						Column:   column,
@@ -138,22 +258,70 @@ func extractParameters(tree antlr.ParseTree, result *scaf.QueryMetadata) {
 		if ruleCtx, ok := node.(antlr.RuleContext); ok {
 			for i := 0; i < ruleCtx.GetChildCount(); i++ {
 				if child := ruleCtx.GetChild(i); child != nil {
-					walk(child)
+					walk(child, parentPropName, parentLabels)
 				}
 			}
 		}
 	}
 
-	walk(tree)
+	walk(tree, "", nil)
+}
+
+// getParentNodeLabels finds the labels from a parent node pattern.
+func getParentNodeLabels(node antlr.Tree, ctx *queryContext) []string {
+	// Walk up the tree to find NodePatternContext
+	current := node
+	for current != nil {
+		if nodeCtx, ok := current.(*cyphergrammar.NodePatternContext); ok {
+			var labels []string
+			if labelsCtx := nodeCtx.NodeLabels(); labelsCtx != nil {
+				for _, nameCtx := range labelsCtx.AllName() {
+					if nameCtx != nil {
+						labels = append(labels, nameCtx.GetText())
+					}
+				}
+			}
+			return labels
+		}
+
+		// Try to get parent
+		if ruleCtx, ok := current.(antlr.RuleContext); ok {
+			current = ruleCtx.GetParent()
+		} else {
+			break
+		}
+	}
+
+	return nil
+}
+
+// inferParameterType looks up the type of a property in the schema.
+func inferParameterType(propName string, labels []string, ctx *queryContext) string {
+	if ctx.schema == nil || propName == "" {
+		return ""
+	}
+
+	// Try each label
+	for _, label := range labels {
+		if model, ok := ctx.schema.Models[label]; ok {
+			for _, field := range model.Fields {
+				if field.Name == propName && field.Type != nil {
+					return field.Type.String()
+				}
+			}
+		}
+	}
+
+	return ""
 }
 
 // extractReturns walks the tree to find RETURN clause items.
-func extractReturns(tree antlr.ParseTree, result *scaf.QueryMetadata) {
+func extractReturns(tree antlr.ParseTree, result *scaf.QueryMetadata, ctx *queryContext) {
 	var walk func(node antlr.Tree)
 
 	walk = func(node antlr.Tree) {
 		if returnCtx, ok := node.(*cyphergrammar.ReturnStContext); ok {
-			extractReturnInfo(returnCtx, result)
+			extractReturnInfo(returnCtx, result, ctx)
 		}
 
 		// Recursively walk children
@@ -170,7 +338,7 @@ func extractReturns(tree antlr.ParseTree, result *scaf.QueryMetadata) {
 }
 
 // extractReturnInfo processes a ReturnStContext to extract return items.
-func extractReturnInfo(returnCtx *cyphergrammar.ReturnStContext, result *scaf.QueryMetadata) {
+func extractReturnInfo(returnCtx *cyphergrammar.ReturnStContext, result *scaf.QueryMetadata, ctx *queryContext) {
 	projBody := returnCtx.ProjectionBody()
 	if projBody == nil {
 		return
@@ -195,13 +363,13 @@ func extractReturnInfo(returnCtx *cyphergrammar.ReturnStContext, result *scaf.Qu
 	// Iterate through each projection item
 	for _, itemCtx := range projItems.AllProjectionItem() {
 		if projItemCtx, ok := itemCtx.(*cyphergrammar.ProjectionItemContext); ok {
-			extractProjectionItem(projItemCtx, result)
+			extractProjectionItem(projItemCtx, result, ctx)
 		}
 	}
 }
 
 // extractProjectionItem processes a single ProjectionItemContext.
-func extractProjectionItem(itemCtx *cyphergrammar.ProjectionItemContext, result *scaf.QueryMetadata) {
+func extractProjectionItem(itemCtx *cyphergrammar.ProjectionItemContext, result *scaf.QueryMetadata, ctx *queryContext) {
 	if itemCtx == nil {
 		return
 	}
@@ -212,6 +380,17 @@ func extractProjectionItem(itemCtx *cyphergrammar.ProjectionItemContext, result 
 	}
 
 	expression := exprCtx.GetText()
+
+	// Get position info from the expression's start token
+	var line, column, length int
+	if ruleCtx, ok := exprCtx.(antlr.ParserRuleContext); ok {
+		startToken := ruleCtx.GetStart()
+		if startToken != nil {
+			line = startToken.GetLine()
+			column = startToken.GetColumn() + 1 // ANTLR is 0-based, we want 1-based
+			length = len(expression)
+		}
+	}
 
 	// Check for alias (AS keyword)
 	var alias string
@@ -234,13 +413,61 @@ func extractProjectionItem(itemCtx *cyphergrammar.ProjectionItemContext, result 
 	// Check for wildcard patterns like n.*
 	isWildcard := expression == "*" || strings.HasSuffix(expression, ".*")
 
+	// Infer type from schema
+	returnType := inferReturnType(expression, ctx)
+
 	result.Returns = append(result.Returns, scaf.ReturnInfo{
 		Name:        name,
+		Type:        returnType,
 		Expression:  expression,
 		Alias:       alias,
 		IsAggregate: isAggregate,
 		IsWildcard:  isWildcard,
+		Line:        line,
+		Column:      column,
+		Length:      length,
 	})
+}
+
+// inferReturnType infers the type of a return expression from the schema.
+func inferReturnType(expression string, ctx *queryContext) string {
+	if ctx.schema == nil {
+		return ""
+	}
+
+	// Parse property access: "u.name" -> variable="u", property="name"
+	if idx := strings.Index(expression, "."); idx > 0 {
+		varName := expression[:idx]
+		propName := expression[idx+1:]
+
+		// Handle nested property access (e.g., "u.address.city") - just get first property for now
+		if nestedIdx := strings.Index(propName, "."); nestedIdx > 0 {
+			propName = propName[:nestedIdx]
+		}
+
+		// Look up the variable binding
+		if binding, ok := ctx.bindings[varName]; ok {
+			for _, label := range binding.labels {
+				if model, ok := ctx.schema.Models[label]; ok {
+					for _, field := range model.Fields {
+						if field.Name == propName && field.Type != nil {
+							return field.Type.String()
+						}
+					}
+				}
+			}
+		}
+	}
+
+	// Check if it's a plain variable (returning whole node)
+	if binding, ok := ctx.bindings[expression]; ok {
+		// Return the model name as the type (e.g., "*User")
+		if len(binding.labels) > 0 {
+			return "*" + binding.labels[0]
+		}
+	}
+
+	return ""
 }
 
 // inferNameFromExpression infers a usable name from an expression.
@@ -300,32 +527,6 @@ func isAggregateExpression(exprCtx cyphergrammar.IExpressionContext) bool {
 	}
 
 	return check(exprCtx)
-}
-
-// AnalyzeQueryWithSchema parses a Cypher query and extracts metadata with cardinality inference.
-// If schema is provided, it checks if the query filters on unique fields to determine ReturnsOne.
-func (a *Analyzer) AnalyzeQueryWithSchema(query string, schema *analysis.TypeSchema) (*scaf.QueryMetadata, error) {
-	// First, get the base metadata
-	result, err := a.AnalyzeQuery(query)
-	if err != nil {
-		return nil, err
-	}
-
-	// If no schema, default to ReturnsOne = false (slice)
-	if schema == nil {
-		return result, nil
-	}
-
-	// Parse the query to check for unique field filters
-	tree, err := parseCypherQuery(query)
-	if err != nil {
-		return result, nil // Return base result on parse error
-	}
-
-	// Check if query filters on unique fields
-	result.ReturnsOne = checkUniqueFilter(tree, schema)
-
-	return result, nil
 }
 
 // checkUniqueFilter walks the parse tree to find MATCH clauses with property filters
@@ -424,4 +625,3 @@ func checkNodePatternForUnique(nodeCtx *cyphergrammar.NodePatternContext, schema
 // Ensure Analyzer implements scaf.QueryAnalyzer and analysis.SchemaAwareAnalyzer.
 var _ scaf.QueryAnalyzer = (*Analyzer)(nil)
 var _ analysis.SchemaAwareAnalyzer = (*Analyzer)(nil)
-

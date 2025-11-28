@@ -3,6 +3,7 @@ package lsp_test
 import (
 	"context"
 	"os"
+	"path/filepath"
 	"testing"
 
 	"go.lsp.dev/protocol"
@@ -73,44 +74,66 @@ GetUser {
 		loc.Range.Start.Line, loc.Range.Start.Character, loc.Range.End.Character)
 }
 
-// TestServer_Definition_LocalNamedSetup tests go-to-definition from a local
-// named setup call to the query definition.
-func TestServer_Definition_LocalNamedSetup(t *testing.T) {
+// TestServer_Definition_SetupModuleRef tests go-to-definition from a module
+// reference in a setup clause to the import statement.
+// Note: With the new syntax, local setup calls don't exist. You either:
+// - Use `setup moduleName` to run a module's setup clause
+// - Use `setup moduleName.Query()` to call a query from an imported module
+func TestServer_Definition_SetupModuleRef(t *testing.T) {
 	t.Parallel()
 
 	server, _ := newTestServer(t)
 	ctx := context.Background()
 
-	_, _ = server.Initialize(ctx, &protocol.InitializeParams{})
-	_ = server.Initialized(ctx, &protocol.InitializedParams{})
+	// Create temporary directory structure
+	tmpDir := t.TempDir()
 
-	// Open a file with a query and a scope that uses it as a setup
-	content := `query SetupUser ` + "`CREATE (u:User {name: $name}) RETURN u`" + `
+	// Create fixtures.scaf
+	fixturesPath := filepath.Join(tmpDir, "fixtures.scaf")
+	fixturesContent := `query CreateUser ` + "`CREATE (u:User {name: $name}) RETURN u`" + `
+`
+	if err := os.WriteFile(fixturesPath, []byte(fixturesContent), 0o644); err != nil {
+		t.Fatalf("Failed to write fixtures.scaf: %v", err)
+	}
+
+	// Create main.scaf that imports fixtures
+	mainPath := filepath.Join(tmpDir, "main.scaf")
+	mainContent := `import fixtures "./fixtures"
+
 query GetUser ` + "`MATCH (u:User {id: $id}) RETURN u`" + `
 
 GetUser {
-	setup SetupUser($name: "test")
+	setup fixtures.CreateUser($name: "test")
 	test "finds user" {
 		$id: 1
 	}
 }
 `
-	uri := protocol.DocumentURI("file:///test.scaf")
+	if err := os.WriteFile(mainPath, []byte(mainContent), 0o644); err != nil {
+		t.Fatalf("Failed to write main.scaf: %v", err)
+	}
+
+	_, _ = server.Initialize(ctx, &protocol.InitializeParams{
+		RootURI: protocol.DocumentURI("file://" + tmpDir),
+	})
+	_ = server.Initialized(ctx, &protocol.InitializedParams{})
+
+	mainURI := protocol.DocumentURI("file://" + mainPath)
 	_ = server.DidOpen(ctx, &protocol.DidOpenTextDocumentParams{
 		TextDocument: protocol.TextDocumentItem{
-			URI:     uri,
+			URI:     mainURI,
 			Version: 1,
-			Text:    content,
+			Text:    mainContent,
 		},
 	})
 
-	// Request definition on "SetupUser" in the setup clause (line 4)
-	// Line 4 is "\tsetup SetupUser($name: "test")"
-	// "	setup " = 7 chars (tab + "setup "), so SetupUser starts at char 7
+	// Request definition on "CreateUser" in the setup clause (line 5)
+	// Line 5 is "\tsetup fixtures.CreateUser($name: "test")"
+	// "	setup fixtures." = 16 chars, so CreateUser starts at char 16
 	result, err := server.Definition(ctx, &protocol.DefinitionParams{
 		TextDocumentPositionParams: protocol.TextDocumentPositionParams{
-			TextDocument: protocol.TextDocumentIdentifier{URI: uri},
-			Position:     protocol.Position{Line: 4, Character: 8}, // On "SetupUser"
+			TextDocument: protocol.TextDocumentIdentifier{URI: mainURI},
+			Position:     protocol.Position{Line: 5, Character: 17}, // On "CreateUser"
 		},
 	})
 	if err != nil {
@@ -122,28 +145,44 @@ GetUser {
 	}
 
 	loc := result[0]
-	if loc.URI != uri {
-		t.Errorf("Expected URI %s, got %s", uri, loc.URI)
+
+	// Should point to fixtures.scaf (the imported file)
+	expectedURI := protocol.DocumentURI("file://" + fixturesPath)
+	if loc.URI != expectedURI {
+		t.Errorf("Expected URI %s, got %s", expectedURI, loc.URI)
 	}
 
-	// Should point to line 0 (SetupUser query definition)
+	// Should point to line 0 (CreateUser query definition)
 	if loc.Range.Start.Line != 0 {
 		t.Errorf("Expected definition on line 0, got line %d", loc.Range.Start.Line)
 	}
 
-	t.Logf("Definition location: line %d, char %d-%d",
-		loc.Range.Start.Line, loc.Range.Start.Character, loc.Range.End.Character)
+	t.Logf("Definition location: URI=%s, line %d, char %d-%d",
+		loc.URI, loc.Range.Start.Line, loc.Range.Start.Character, loc.Range.End.Character)
 }
 
 // TestServer_Definition_ImportAlias tests go-to-definition from an import alias
-// in a named setup call to the import statement.
+// in a named setup call to the imported module's file.
 func TestServer_Definition_ImportAlias(t *testing.T) {
 	t.Parallel()
+
+	// Create temporary directory structure for cross-file test
+	tmpDir := t.TempDir()
+
+	// Create fixtures.scaf
+	fixturesContent := `query CreateUser ` + "`CREATE (u:User {name: $name}) RETURN u`" + `
+`
+	fixturesPath := tmpDir + "/fixtures.scaf"
+	if err := writeFile(fixturesPath, fixturesContent); err != nil {
+		t.Fatalf("Failed to create fixtures file: %v", err)
+	}
 
 	server, _ := newTestServer(t)
 	ctx := context.Background()
 
-	_, _ = server.Initialize(ctx, &protocol.InitializeParams{})
+	_, _ = server.Initialize(ctx, &protocol.InitializeParams{
+		RootURI: protocol.DocumentURI("file://" + tmpDir),
+	})
 	_ = server.Initialized(ctx, &protocol.InitializedParams{})
 
 	content := `import fixtures "./fixtures"
@@ -157,7 +196,11 @@ GetUser {
 	}
 }
 `
-	uri := protocol.DocumentURI("file:///test.scaf")
+	mainPath := tmpDir + "/test.scaf"
+	if err := writeFile(mainPath, content); err != nil {
+		t.Fatalf("Failed to create main file: %v", err)
+	}
+	uri := protocol.DocumentURI("file://" + mainPath)
 	_ = server.DidOpen(ctx, &protocol.DidOpenTextDocumentParams{
 		TextDocument: protocol.TextDocumentItem{
 			URI:     uri,
@@ -184,17 +227,18 @@ GetUser {
 	}
 
 	loc := result[0]
-	if loc.URI != uri {
-		t.Errorf("Expected URI %s, got %s", uri, loc.URI)
+	fixturesURI := protocol.DocumentURI("file://" + fixturesPath)
+	if loc.URI != fixturesURI {
+		t.Errorf("Expected URI %s, got %s", fixturesURI, loc.URI)
 	}
 
-	// Should point to line 0 (import statement)
-	if loc.Range.Start.Line != 0 {
-		t.Errorf("Expected definition on line 0, got line %d", loc.Range.Start.Line)
+	// Should point to start of the imported file (line 0, char 0)
+	if loc.Range.Start.Line != 0 || loc.Range.Start.Character != 0 {
+		t.Errorf("Expected definition at (0, 0), got (%d, %d)", loc.Range.Start.Line, loc.Range.Start.Character)
 	}
 
-	t.Logf("Definition location: line %d, char %d-%d",
-		loc.Range.Start.Line, loc.Range.Start.Character, loc.Range.End.Character)
+	t.Logf("Definition location: URI=%s, line %d, char %d-%d",
+		loc.URI, loc.Range.Start.Line, loc.Range.Start.Character, loc.Range.End.Character)
 }
 
 // TestServer_Definition_CrossFile_NamedSetup tests go-to-definition from a
@@ -573,9 +617,93 @@ GetUser {
 	}
 }
 
-// TestServer_Definition_InTestSetup tests go-to-definition from a setup
-// inside a test block.
+// TestServer_Definition_InTestSetup tests go-to-definition from a setup call
+// inside a test block to the query definition in an imported module.
 func TestServer_Definition_InTestSetup(t *testing.T) {
+	t.Parallel()
+
+	server, _ := newTestServer(t)
+	ctx := context.Background()
+
+	// Create temporary directory structure
+	tmpDir := t.TempDir()
+
+	// Create fixtures.scaf
+	fixturesPath := filepath.Join(tmpDir, "fixtures.scaf")
+	fixturesContent := `query SetupData ` + "`CREATE (d:Data) RETURN d`" + `
+`
+	if err := os.WriteFile(fixturesPath, []byte(fixturesContent), 0o644); err != nil {
+		t.Fatalf("Failed to write fixtures.scaf: %v", err)
+	}
+
+	// Create main.scaf that imports fixtures
+	mainPath := filepath.Join(tmpDir, "main.scaf")
+	mainContent := `import fixtures "./fixtures"
+
+query GetUser ` + "`MATCH (u:User) RETURN u`" + `
+
+GetUser {
+	test "with setup" {
+		setup fixtures.SetupData()
+		$id: 1
+	}
+}
+`
+	if err := os.WriteFile(mainPath, []byte(mainContent), 0o644); err != nil {
+		t.Fatalf("Failed to write main.scaf: %v", err)
+	}
+
+	_, _ = server.Initialize(ctx, &protocol.InitializeParams{
+		RootURI: protocol.DocumentURI("file://" + tmpDir),
+	})
+	_ = server.Initialized(ctx, &protocol.InitializedParams{})
+
+	mainURI := protocol.DocumentURI("file://" + mainPath)
+	_ = server.DidOpen(ctx, &protocol.DidOpenTextDocumentParams{
+		TextDocument: protocol.TextDocumentItem{
+			URI:     mainURI,
+			Version: 1,
+			Text:    mainContent,
+		},
+	})
+
+	// Request definition on "SetupData" in test setup (line 6)
+	// Line 6 is "\t\tsetup fixtures.SetupData()"
+	// "\t\tsetup fixtures." = 18 chars, so "SetupData" starts around char 18
+	result, err := server.Definition(ctx, &protocol.DefinitionParams{
+		TextDocumentPositionParams: protocol.TextDocumentPositionParams{
+			TextDocument: protocol.TextDocumentIdentifier{URI: mainURI},
+			Position:     protocol.Position{Line: 6, Character: 19}, // On "SetupData"
+		},
+	})
+	if err != nil {
+		t.Fatalf("Definition() error: %v", err)
+	}
+
+	if len(result) != 1 {
+		t.Fatalf("Expected 1 location, got %d", len(result))
+	}
+
+	loc := result[0]
+
+	// Should point to fixtures.scaf (the imported file)
+	expectedURI := protocol.DocumentURI("file://" + fixturesPath)
+	if loc.URI != expectedURI {
+		t.Errorf("Expected URI %s, got %s", expectedURI, loc.URI)
+	}
+
+	// Should point to line 0 (SetupData query definition)
+	if loc.Range.Start.Line != 0 {
+		t.Errorf("Expected definition on line 0, got line %d", loc.Range.Start.Line)
+	}
+
+	t.Logf("Definition location: URI=%s, line %d, char %d-%d",
+		loc.URI, loc.Range.Start.Line, loc.Range.Start.Character, loc.Range.End.Character)
+}
+
+// TestServer_Definition_ReturnField tests go-to-definition from a return field
+// in a test statement (like u.name) to the query definition.
+func TestServer_Definition_ReturnField(t *testing.T) {
 	t.Parallel()
 
 	server, _ := newTestServer(t)
@@ -584,13 +712,28 @@ func TestServer_Definition_InTestSetup(t *testing.T) {
 	_, _ = server.Initialize(ctx, &protocol.InitializeParams{})
 	_ = server.Initialized(ctx, &protocol.InitializedParams{})
 
-	content := `query SetupData ` + "`CREATE (d:Data) RETURN d`" + `
-query GetUser ` + "`MATCH (u:User) RETURN u`" + `
+	// Query with explicit return fields
+	// Line numbers (0-indexed):
+	// 0: query GetUser `
+	// 1: MATCH (u:User {id: $userId})
+	// 2: RETURN u.id, u.name, u.email
+	// 3: `
+	// 4: (empty)
+	// 5: GetUser {
+	// 6:   test "finds user" {
+	// 7:     $userId: 1
+	// 8:     u.name: "Alice"
+	// 9:   }
+	// 10: }
+	content := `query GetUser ` + "`" + `
+MATCH (u:User {id: $userId})
+RETURN u.id, u.name, u.email
+` + "`" + `
 
 GetUser {
-	test "with setup" {
-		setup SetupData()
-		$id: 1
+	test "finds user" {
+		$userId: 1
+		u.name: "Alice"
 	}
 }
 `
@@ -603,13 +746,12 @@ GetUser {
 		},
 	})
 
-	// Request definition on "SetupData" in test setup (line 5)
-	// Line 5 is "\t\tsetup SetupData()"
-	// "\t\tsetup " = 8 chars, so "SetupData" starts at char 8
+	// Request definition on "u.name" in the test (line 8, character 2)
+	// Line 8 is "\t\tu.name: "Alice""
 	result, err := server.Definition(ctx, &protocol.DefinitionParams{
 		TextDocumentPositionParams: protocol.TextDocumentPositionParams{
 			TextDocument: protocol.TextDocumentIdentifier{URI: uri},
-			Position:     protocol.Position{Line: 5, Character: 9}, // On "SetupData"
+			Position:     protocol.Position{Line: 8, Character: 3}, // On "u.name"
 		},
 	})
 	if err != nil {
@@ -621,9 +763,21 @@ GetUser {
 	}
 
 	loc := result[0]
-	// Should point to line 0 (SetupData query definition)
-	if loc.Range.Start.Line != 0 {
-		t.Errorf("Expected definition on line 0, got line %d", loc.Range.Start.Line)
+	if loc.URI != uri {
+		t.Errorf("Expected URI %s, got %s", uri, loc.URI)
+	}
+
+	// Should point to u.name in the RETURN clause (line 2)
+	// Line 2 is "RETURN u.id, u.name, u.email"
+	// u.name starts at column 13 (after "RETURN u.id, ")
+	if loc.Range.Start.Line != 2 {
+		t.Errorf("Expected definition on line 2 (RETURN clause), got line %d", loc.Range.Start.Line)
+	}
+	if loc.Range.Start.Character != 13 {
+		t.Errorf("Expected definition at character 13 (u.name), got %d", loc.Range.Start.Character)
+	}
+	if loc.Range.End.Character != 19 {
+		t.Errorf("Expected definition end at character 19, got %d", loc.Range.End.Character)
 	}
 
 	t.Logf("Definition location: line %d, char %d-%d",
@@ -761,15 +915,15 @@ GetUser {
 			description: "Query scope name should go to query definition",
 		},
 
-		// 2. Global setup - import alias
+		// 2. Global setup - import alias (goes to imported file)
 		{
 			name:        "global_setup_import_alias",
 			line:        6,  // "setup fixtures.SetupCleanDB()"
 			character:   7,  // On "fixtures"
-			wantURI:     mainURI,
-			wantLine:    0,  // import line
+			wantURI:     fixturesURI,
+			wantLine:    0,  // start of imported file
 			wantFound:   true,
-			description: "Import alias in global setup should go to import statement",
+			description: "Import alias in global setup should go to imported file",
 		},
 
 		// 3. Global setup - function name (cross-file)
@@ -783,15 +937,15 @@ GetUser {
 			description: "Function name in global setup should go to query in imported file",
 		},
 
-		// 4. Scope setup - import alias
+		// 4. Scope setup - import alias (goes to imported file)
 		{
 			name:        "scope_setup_import_alias",
 			line:        9,  // "\tsetup fixtures.SetupUsers()"
 			character:   7,  // On "fixtures"
-			wantURI:     mainURI,
-			wantLine:    0,  // import line
+			wantURI:     fixturesURI,
+			wantLine:    0,  // start of imported file
 			wantFound:   true,
-			description: "Import alias in scope setup should go to import statement",
+			description: "Import alias in scope setup should go to imported file",
 		},
 
 		// 5. Scope setup - function name (cross-file)
@@ -805,15 +959,15 @@ GetUser {
 			description: "Function name in scope setup should go to query in imported file",
 		},
 
-		// 6. Group setup - import alias
+		// 6. Group setup - import alias (goes to imported file)
 		{
 			name:        "group_setup_import_alias",
 			line:        11, // "\t\tsetup fixtures.SetupUsers()"
 			character:   9,  // On "fixtures"
-			wantURI:     mainURI,
-			wantLine:    0,  // import line
+			wantURI:     fixturesURI,
+			wantLine:    0,  // start of imported file
 			wantFound:   true,
-			description: "Import alias in group setup should go to import statement",
+			description: "Import alias in group setup should go to imported file",
 		},
 
 		// 7. Group setup - function name (cross-file)
@@ -827,15 +981,15 @@ GetUser {
 			description: "Function name in group setup should go to query in imported file",
 		},
 
-		// 8. Test setup with params - import alias
+		// 8. Test setup with params - import alias (goes to imported file)
 		{
 			name:        "test_setup_import_alias",
 			line:        13, // "\t\t\tsetup fixtures.SetupPosts(...)"
 			character:   10, // On "fixtures"
-			wantURI:     mainURI,
-			wantLine:    0,  // import line
+			wantURI:     fixturesURI,
+			wantLine:    0,  // start of imported file
 			wantFound:   true,
-			description: "Import alias in test setup should go to import statement",
+			description: "Import alias in test setup should go to imported file",
 		},
 
 		// 9. Test setup with params - function name (cross-file)

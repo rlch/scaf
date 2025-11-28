@@ -441,7 +441,7 @@ func TestParseImports(t *testing.T) {
 	}
 }
 
-func TestParseNamedSetup(t *testing.T) {
+func TestParseSetupCall(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -450,22 +450,7 @@ func TestParseNamedSetup(t *testing.T) {
 		expected *scaf.SetupClause
 	}{
 		{
-			name: "named setup no params",
-			input: `
-				query Q ` + "`Q`" + `
-				Q {
-					setup SetupDB()
-					test "t" {}
-				}
-			`,
-			expected: &scaf.SetupClause{
-				Named: &scaf.NamedSetup{
-					Name: "SetupDB",
-				},
-			},
-		},
-		{
-			name: "named setup with module",
+			name: "setup call with module",
 			input: `
 				query Q ` + "`Q`" + `
 				Q {
@@ -474,24 +459,25 @@ func TestParseNamedSetup(t *testing.T) {
 				}
 			`,
 			expected: &scaf.SetupClause{
-				Named: &scaf.NamedSetup{
-					Module: ptr("fixtures"),
-					Name:   "SetupDB",
+				Call: &scaf.SetupCall{
+					Module: "fixtures",
+					Query:  "SetupDB",
 				},
 			},
 		},
 		{
-			name: "named setup with params",
+			name: "setup call with params",
 			input: `
 				query Q ` + "`Q`" + `
 				Q {
-					setup CreatePosts($n: 10, $title: "Post")
+					setup fixtures.CreatePosts($n: 10, $title: "Post")
 					test "t" {}
 				}
 			`,
 			expected: &scaf.SetupClause{
-				Named: &scaf.NamedSetup{
-					Name: "CreatePosts",
+				Call: &scaf.SetupCall{
+					Module: "fixtures",
+					Query:  "CreatePosts",
 					Params: []*scaf.SetupParam{
 						{Name: "$n", Value: &scaf.ParamValue{Literal: &scaf.Value{Number: ptr(10.0)}}},
 						{Name: "$title", Value: &scaf.ParamValue{Literal: &scaf.Value{Str: ptr("Post")}}},
@@ -500,23 +486,16 @@ func TestParseNamedSetup(t *testing.T) {
 			},
 		},
 		{
-			name: "named setup with module and params",
+			name: "setup module reference",
 			input: `
 				query Q ` + "`Q`" + `
 				Q {
-					setup fixtures.CreatePosts($n: 10, $authorId: 1)
+					setup fixtures
 					test "t" {}
 				}
 			`,
 			expected: &scaf.SetupClause{
-				Named: &scaf.NamedSetup{
-					Module: ptr("fixtures"),
-					Name:   "CreatePosts",
-					Params: []*scaf.SetupParam{
-						{Name: "$n", Value: &scaf.ParamValue{Literal: &scaf.Value{Number: ptr(10.0)}}},
-						{Name: "$authorId", Value: &scaf.ParamValue{Literal: &scaf.Value{Number: ptr(1.0)}}},
-					},
-				},
+				Module: ptr("fixtures"),
 			},
 		},
 		{
@@ -535,17 +514,32 @@ func TestParseNamedSetup(t *testing.T) {
 			},
 		},
 		{
-			name: "setup block with single named",
+			name: "setup block with single module",
 			input: `
 				query Q ` + "`Q`" + `
 				Q {
-					setup { SetupUsers() }
+					setup { fixtures }
 					test "t" {}
 				}
 			`,
 			expected: &scaf.SetupClause{
 				Block: []*scaf.SetupItem{
-					{Named: &scaf.NamedSetup{Name: "SetupUsers"}},
+					{Module: ptr("fixtures")},
+				},
+			},
+		},
+		{
+			name: "setup block with single call",
+			input: `
+				query Q ` + "`Q`" + `
+				Q {
+					setup { fixtures.SetupUsers() }
+					test "t" {}
+				}
+			`,
+			expected: &scaf.SetupClause{
+				Block: []*scaf.SetupItem{
+					{Call: &scaf.SetupCall{Module: "fixtures", Query: "SetupUsers"}},
 				},
 			},
 		},
@@ -556,7 +550,7 @@ func TestParseNamedSetup(t *testing.T) {
 				Q {
 					setup {
 						` + "`CREATE (:User)`" + `
-						SetupUsers()
+						fixtures
 						fixtures.CreatePosts($n: 10)
 					}
 					test "t" {}
@@ -565,10 +559,10 @@ func TestParseNamedSetup(t *testing.T) {
 			expected: &scaf.SetupClause{
 				Block: []*scaf.SetupItem{
 					{Inline: ptr("CREATE (:User)")},
-					{Named: &scaf.NamedSetup{Name: "SetupUsers"}},
-					{Named: &scaf.NamedSetup{
-						Module: ptr("fixtures"),
-						Name:   "CreatePosts",
+					{Module: ptr("fixtures")},
+					{Call: &scaf.SetupCall{
+						Module: "fixtures",
+						Query:  "CreatePosts",
 						Params: []*scaf.SetupParam{
 							{Name: "$n", Value: &scaf.ParamValue{Literal: &scaf.Value{Number: ptr(10.0)}}},
 						},
@@ -1456,24 +1450,27 @@ func TestIsComplete(t *testing.T) {
 			},
 		},
 		{
-			name: "complete NamedSetup",
+			name: "complete SetupCall",
 			input: `
 				query Q ` + "`Q`" + `
 				Q {
-					setup Func()
+					setup fixtures.Func()
 					test "t" {}
 				}
 			`,
 			checkFn: func(t *testing.T, suite *scaf.Suite) {
 				setup := suite.Scopes[0].Setup
-				if setup == nil || setup.Named == nil {
-					t.Fatal("Expected named setup")
+				if setup == nil || setup.Call == nil {
+					t.Fatal("Expected setup call")
 				}
-				if !setup.Named.IsComplete() {
-					t.Error("Expected setup.Named.IsComplete() = true")
+				if !setup.Call.IsComplete() {
+					t.Error("Expected setup.Call.IsComplete() = true")
 				}
-				if setup.Named.Name != "Func" {
-					t.Errorf("Expected setup.Named.Name = 'Func', got %q", setup.Named.Name)
+				if setup.Call.Query != "Func" {
+					t.Errorf("Expected setup.Call.Query = 'Func', got %q", setup.Call.Query)
+				}
+				if setup.Call.Module != "fixtures" {
+					t.Errorf("Expected setup.Call.Module = 'fixtures', got %q", setup.Call.Module)
 				}
 			},
 		},

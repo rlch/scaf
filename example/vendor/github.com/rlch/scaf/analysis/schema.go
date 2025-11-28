@@ -137,7 +137,7 @@ func yamlSchemaToTypeSchema(ys *yamlSchema) (*TypeSchema, error) {
 // The output includes a yaml-language-server schema comment for editor validation.
 func WriteSchema(w io.Writer, schema *TypeSchema) error {
 	// Write schema comment for editor validation
-	if _, err := fmt.Fprintln(w, "# yaml-language-server: $schema=https://raw.githubusercontent.com/rlch/scaf/main/schemas/scaf-schema.json"); err != nil {
+	if _, err := fmt.Fprintln(w, "# yaml-language-server: $schema=https://raw.githubusercontent.com/rlch/scaf/main/.scaf-type.schema.json"); err != nil {
 		return err
 	}
 	if _, err := fmt.Fprintln(w); err != nil {

@@ -219,6 +219,116 @@ GetUser {
 	}
 }
 
+// TestServer_Completion_ReturnFields_NoAlias tests return field completions when
+// fields don't have explicit aliases - should use the full expression (e.g., u.name).
+func TestServer_Completion_ReturnFields_NoAlias(t *testing.T) {
+	t.Parallel()
+
+	server, _ := newTestServer(t)
+	ctx := context.Background()
+
+	_, _ = server.Initialize(ctx, &protocol.InitializeParams{})
+	_ = server.Initialized(ctx, &protocol.InitializedParams{})
+
+	// Open a file with a query returning fields WITHOUT aliases
+	_ = server.DidOpen(ctx, &protocol.DidOpenTextDocumentParams{
+		TextDocument: protocol.TextDocumentItem{
+			URI:     "file:///test.scaf",
+			Version: 1,
+			Text: `query GetUser ` + "`MATCH (u:User {id: $id}) RETURN u.name, u.email`" + `
+
+GetUser {
+	test "finds user" {
+		$id: 1
+		u.name: "Alice"
+	}
+}
+`,
+		},
+	})
+
+	// Request completion at start of line for return field suggestions
+	// Line 5 is: \t\tu.name: "Alice"
+	result, err := server.Completion(ctx, &protocol.CompletionParams{
+		TextDocumentPositionParams: protocol.TextDocumentPositionParams{
+			TextDocument: protocol.TextDocumentIdentifier{URI: "file:///test.scaf"},
+			Position:     protocol.Position{Line: 5, Character: 2}, // Start of line content (on 'u')
+		},
+	})
+	if err != nil {
+		t.Fatalf("Completion() error: %v", err)
+	}
+
+	if result == nil {
+		t.Fatal("Expected completion result")
+	}
+
+	// Debug: print all items
+	t.Logf("Got %d completion items for return fields (no alias)", len(result.Items))
+
+	for _, item := range result.Items {
+		t.Logf("  Item: %s (kind=%v, detail=%s)", item.Label, item.Kind, item.Detail)
+	}
+
+	// Should offer full expression as labels (u.name, u.email), not just name/email
+	fieldLabels := make(map[string]bool)
+
+	for _, item := range result.Items {
+		if item.Kind == protocol.CompletionItemKindField {
+			fieldLabels[item.Label] = true
+		}
+	}
+
+	if !fieldLabels["u.name"] {
+		t.Errorf("Expected 'u.name' return field completion, got: %v", fieldLabels)
+	}
+	if !fieldLabels["u.email"] {
+		t.Errorf("Expected 'u.email' return field completion, got: %v", fieldLabels)
+	}
+
+	// Now test completion after typing "u." - should show just property names
+	// Line 5 is: \t\tu.name: "Alice"
+	// Positions: 0=\t, 1=\t, 2=u, 3=., 4=n, 5=a, 6=m, 7=e, 8=:
+	// At position 4, cursor is right after the dot (on 'n'), lastChar is '.'
+	resultAfterDot, err := server.Completion(ctx, &protocol.CompletionParams{
+		TextDocumentPositionParams: protocol.TextDocumentPositionParams{
+			TextDocument: protocol.TextDocumentIdentifier{URI: "file:///test.scaf"},
+			Position:     protocol.Position{Line: 5, Character: 4}, // After "u."
+		},
+		Context: &protocol.CompletionContext{
+			TriggerKind:      protocol.CompletionTriggerKindTriggerCharacter,
+			TriggerCharacter: ".",
+		},
+	})
+	if err != nil {
+		t.Fatalf("Completion() after dot error: %v", err)
+	}
+
+	t.Logf("Got %d completion items after 'u.'", len(resultAfterDot.Items))
+	for _, item := range resultAfterDot.Items {
+		t.Logf("  Item: %s (kind=%v, detail=%s)", item.Label, item.Kind, item.Detail)
+	}
+
+	// Should show just "name" and "email" (without "u." prefix)
+	dotFieldLabels := make(map[string]bool)
+	for _, item := range resultAfterDot.Items {
+		if item.Kind == protocol.CompletionItemKindField {
+			dotFieldLabels[item.Label] = true
+		}
+	}
+
+	if !dotFieldLabels["name"] {
+		t.Errorf("Expected 'name' completion after 'u.', got: %v", dotFieldLabels)
+	}
+	if !dotFieldLabels["email"] {
+		t.Errorf("Expected 'email' completion after 'u.', got: %v", dotFieldLabels)
+	}
+	// Should NOT show full expressions
+	if dotFieldLabels["u.name"] {
+		t.Errorf("Should not show 'u.name' after typing 'u.', got: %v", dotFieldLabels)
+	}
+}
+
 func TestServer_Completion_ImportAliases(t *testing.T) {
 	t.Parallel()
 

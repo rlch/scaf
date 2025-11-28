@@ -1,18 +1,20 @@
 // Shared fixtures for test suites
-// This module provides reusable setup queries that can be imported
-// SetupUsers creates a standard set of test users
-query SetupUsers `
+// This module provides reusable setup and queries that can be imported
+// Queries can be called with params: fixtures.CreateUser($id: 1, $name: "Alice")
+query CreateUser `
+CREATE (u:User {id: $id, name: $name, email: $email, age: $age, verified: $verified})
+`
+
+query CreateUsers `
 CREATE (alice:User {id: 1, name: "Alice", email: "alice@example.com", age: 30, verified: true})
 CREATE (bob:User {id: 2, name: "Bob", email: "bob@example.com", age: 25, verified: false})
 CREATE (charlie:User {id: 3, name: "Charlie", email: "charlie@example.com", age: null, verified: true})
 `
 
-// SetupPosts creates posts for testing, parameterized by author
-query SetupPosts `
-CREATE (p:Post {id: $postId, title: $title, authorId: $authorId, views: 0})
+query CreatePost `
+CREATE (p:Post {id: $id, title: $title, authorId: $authorId, views: 0})
 `
 
-// SetupCleanDB removes all nodes for a fresh state
-query SetupCleanDB `
+setup `
 MATCH (n) DETACH DELETE n
 `

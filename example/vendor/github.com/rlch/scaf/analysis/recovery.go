@@ -490,11 +490,11 @@ func findRecoveredInSetup(setup *scaf.SetupClause, pos lexer.Position, ctx *Reco
 		ctx.InSetup = true
 	}
 
-	// Check named setup
-	if setup.Named != nil && setup.Named.WasRecovered() {
-		if positionInRecoverySpan(setup.Named.RecoveredSpan, setup.Named.RecoveredEnd, pos) {
-			ctx.RecoveredNode = setup.Named
-			ctx.RecoveredTokens = setup.Named.RecoveredTokens
+	// Check setup call
+	if setup.Call != nil && setup.Call.WasRecovered() {
+		if positionInRecoverySpan(setup.Call.RecoveredSpan, setup.Call.RecoveredEnd, pos) {
+			ctx.RecoveredNode = setup.Call
+			ctx.RecoveredTokens = setup.Call.RecoveredTokens
 			ctx.InSetup = true
 		}
 	}
@@ -506,10 +506,10 @@ func findRecoveredInSetup(setup *scaf.SetupClause, pos lexer.Position, ctx *Reco
 			ctx.RecoveredTokens = item.RecoveredTokens
 			ctx.InSetup = true
 		}
-		if item.Named != nil && item.Named.WasRecovered() {
-			if positionInRecoverySpan(item.Named.RecoveredSpan, item.Named.RecoveredEnd, pos) {
-				ctx.RecoveredNode = item.Named
-				ctx.RecoveredTokens = item.Named.RecoveredTokens
+		if item.Call != nil && item.Call.WasRecovered() {
+			if positionInRecoverySpan(item.Call.RecoveredSpan, item.Call.RecoveredEnd, pos) {
+				ctx.RecoveredNode = item.Call
+				ctx.RecoveredTokens = item.Call.RecoveredTokens
 				ctx.InSetup = true
 			}
 		}
@@ -592,7 +592,7 @@ func analyzeRecoveredTokens(ctx *RecoveryCompletionContext, symbols *SymbolTable
 // determineKindFromNode determines completion kind when no recovered tokens are available.
 func determineKindFromNode(ctx *RecoveryCompletionContext) RecoveryCompletionKind {
 	switch ctx.RecoveredNode.(type) {
-	case *scaf.SetupClause, *scaf.NamedSetup:
+	case *scaf.SetupClause, *scaf.SetupCall:
 		return RecoveryCompletionSetupAlias
 	case *scaf.Statement:
 		if ctx.InTest {

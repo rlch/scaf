@@ -1,4 +1,4 @@
-# yaml-language-server: $schema=https://raw.githubusercontent.com/rlch/scaf/main/.scaf-type.schema.json
+# yaml-language-server: $schema=https://raw.githubusercontent.com/rlch/scaf/refs/heads/master/.scaf-type.schema.json
 
 models:
   ActedIn:

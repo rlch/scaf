@@ -1,0 +1,129 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://raw.githubusercontent.com/rlch/scaf/main/.scaf.schema.json",
+  "title": "Scaf Config",
+  "description": "Configuration file for scaf projects. Defines database connections and code generation settings.",
+  "type": "object",
+  "properties": {
+    "neo4j": {
+      "$ref": "#/definitions/neo4jConfig"
+    },
+    "postgres": {
+      "$ref": "#/definitions/postgresConfig"
+    },
+    "generate": {
+      "$ref": "#/definitions/generateConfig"
+    }
+  },
+  "additionalProperties": false,
+  "definitions": {
+    "neo4jConfig": {
+      "type": "object",
+      "description": "Neo4j database connection settings.",
+      "properties": {
+        "uri": {
+          "type": "string",
+          "description": "Neo4j connection URI (e.g., 'bolt://localhost:7687', 'neo4j://localhost:7687').",
+          "examples": ["bolt://localhost:7687", "neo4j://localhost:7687", "neo4j+s://example.databases.neo4j.io"]
+        },
+        "username": {
+          "type": "string",
+          "description": "Neo4j username for authentication."
+        },
+        "password": {
+          "type": "string",
+          "description": "Neo4j password for authentication."
+        },
+        "database": {
+          "type": "string",
+          "description": "Neo4j database name. Defaults to 'neo4j' if not specified."
+        }
+      },
+      "required": ["uri"],
+      "additionalProperties": false
+    },
+    "postgresConfig": {
+      "type": "object",
+      "description": "PostgreSQL database connection settings.",
+      "properties": {
+        "uri": {
+          "type": "string",
+          "description": "PostgreSQL connection string (e.g., 'postgres://user:pass@localhost:5432/dbname')."
+        },
+        "host": {
+          "type": "string",
+          "description": "PostgreSQL host.",
+          "default": "localhost"
+        },
+        "port": {
+          "type": "integer",
+          "description": "PostgreSQL port.",
+          "default": 5432
+        },
+        "database": {
+          "type": "string",
+          "description": "PostgreSQL database name."
+        },
+        "user": {
+          "type": "string",
+          "description": "PostgreSQL username."
+        },
+        "password": {
+          "type": "string",
+          "description": "PostgreSQL password."
+        },
+        "sslmode": {
+          "type": "string",
+          "description": "PostgreSQL SSL mode.",
+          "enum": ["disable", "require", "verify-ca", "verify-full"],
+          "default": "disable"
+        }
+      },
+      "additionalProperties": false
+    },
+    "generateConfig": {
+      "type": "object",
+      "description": "Code generation settings.",
+      "properties": {
+        "lang": {
+          "type": "string",
+          "description": "Target programming language for code generation.",
+          "enum": ["go"],
+          "default": "go"
+        },
+        "adapter": {
+          "type": "string",
+          "description": "Database adapter/ORM for generated code.",
+          "enum": ["neogo"],
+          "examples": ["neogo"]
+        },
+        "out": {
+          "type": "string",
+          "description": "Output directory for generated files. Defaults to the same directory as the .scaf file."
+        },
+        "package": {
+          "type": "string",
+          "description": "Go package name for generated code. Defaults to the output directory name."
+        },
+        "schema": {
+          "type": "string",
+          "description": "Path to the schema YAML file (e.g., '.scaf-schema.yaml'). Provides type information for accurate code generation.",
+          "examples": [".scaf-schema.yaml"]
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "examples": [
+    {
+      "neo4j": {
+        "uri": "bolt://localhost:7687"
+      },
+      "generate": {
+        "adapter": "neogo",
+        "schema": ".scaf-schema.yaml",
+        "package": "movies"
+      }
+    }
+  ]
+}

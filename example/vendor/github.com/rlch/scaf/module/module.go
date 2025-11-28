@@ -15,137 +15,55 @@ type Module struct {
 	// Suite is the parsed AST.
 	Suite *scaf.Suite
 
-	// Setups contains all setup clauses defined in this module, keyed by name.
-	// Setup names are derived from query scopes that contain only setup (no tests).
-	// For example:
-	//   SetupDB { setup `CREATE ...` }
-	// registers a setup named "SetupDB".
-	Setups map[string]*Setup
-}
-
-// Setup represents a reusable setup defined in a module.
-type Setup struct {
-	// Name is the setup identifier.
-	Name string
-
-	// Query is the Cypher/SQL query to execute.
-	// This is the body from the setup clause.
-	Query string
-
-	// Params are the parameter names this setup accepts (with $ prefix stripped).
-	Params []string
-
-	// Module is the module this setup belongs to.
-	Module *Module
+	// Queries maps query name to query body for fast lookup.
+	Queries map[string]string
 }
 
 // NewModule creates a Module from a parsed Suite.
 func NewModule(path string, suite *scaf.Suite) *Module {
 	m := &Module{
-		Path:   path,
-		Suite:  suite,
-		Setups: make(map[string]*Setup),
+		Path:    path,
+		Suite:   suite,
+		Queries: make(map[string]string),
 	}
 
-	// Extract setups from query definitions that are meant to be reusable.
-	// Convention: A query scope with only a setup clause (no tests) defines a reusable setup.
-	// The scope name becomes the setup name.
-	//
-	// Example:
-	//   query SetupTestDB `CREATE (:TestNode)`
-	//   SetupTestDB {
-	//     setup SetupTestDB()  // Self-referential - this is the setup definition
-	//   }
-	//
-	// OR simpler - just look for queries that are named like setups and have
-	// scope-level setup that references them inline:
-	//   query SetupDB `CREATE (:User)`
-	//   SetupDB { setup `CREATE (:User)` }
-
-	// For now, we use a simpler convention:
-	// Any query whose name starts with "Setup" or ends with "Setup" is a reusable setup.
-	// The query body IS the setup query.
+	// Index queries for fast lookup
 	for _, q := range suite.Queries {
-		if isSetupQuery(q.Name) {
-			m.Setups[q.Name] = &Setup{
-				Name:   q.Name,
-				Query:  q.Body,
-				Params: extractQueryParams(q.Body),
-				Module: m,
-			}
-		}
+		m.Queries[q.Name] = q.Body
 	}
 
 	return m
 }
 
-// isSetupQuery returns true if the query name indicates it's a reusable setup.
-func isSetupQuery(name string) bool {
-	lower := strings.ToLower(name)
-
-	return strings.HasPrefix(lower, "setup") || strings.HasSuffix(lower, "setup")
+// HasSetup returns true if this module has a setup clause.
+func (m *Module) HasSetup() bool {
+	return m.Suite != nil && m.Suite.Setup != nil
 }
 
-// extractQueryParams finds $param references in a query string.
-// This is a simple implementation that looks for $identifier patterns.
-func extractQueryParams(query string) []string {
-	var params []string
-
-	seen := make(map[string]bool)
-
-	// Simple state machine to find $identifier
-	inParam := false
-
-	var current strings.Builder
-
-	for _, r := range query {
-		if r == '$' {
-			inParam = true
-
-			current.Reset()
-
-			continue
-		}
-
-		if inParam {
-			if isIdentChar(r) {
-				current.WriteRune(r)
-			} else {
-				if current.Len() > 0 {
-					name := current.String()
-					if !seen[name] {
-						params = append(params, name)
-						seen[name] = true
-					}
-				}
-
-				inParam = false
-			}
-		}
+// GetSetup returns the module's setup clause, or nil if none.
+func (m *Module) GetSetup() *scaf.SetupClause {
+	if m.Suite == nil {
+		return nil
 	}
-
-	// Handle param at end of string
-	if inParam && current.Len() > 0 {
-		name := current.String()
-		if !seen[name] {
-			params = append(params, name)
-		}
-	}
-
-	return params
+	return m.Suite.Setup
 }
 
-func isIdentChar(r rune) bool {
-	return (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') ||
-		(r >= '0' && r <= '9') || r == '_'
+// GetQuery returns a query by name, or empty string if not found.
+func (m *Module) GetQuery(name string) (string, bool) {
+	q, ok := m.Queries[name]
+	return q, ok
 }
 
 // BaseName returns the module name derived from the file path.
 // For "/path/to/fixtures.scaf", returns "fixtures".
+// For "/path/to/fixtures.cypher.scaf", returns "fixtures".
 func (m *Module) BaseName() string {
 	base := filepath.Base(m.Path)
-
-	return strings.TrimSuffix(base, filepath.Ext(base))
+	// Strip all extensions (handles .cypher.scaf, .sql.scaf, etc.)
+	for ext := filepath.Ext(base); ext != ""; ext = filepath.Ext(base) {
+		base = strings.TrimSuffix(base, ext)
+	}
+	return base
 }
 
 // ResolvedContext holds all modules needed to execute a test suite.
@@ -170,39 +88,42 @@ func NewResolvedContext(root *Module) *ResolvedContext {
 	}
 }
 
-// ResolveSetup looks up a setup by module alias and name.
-// If moduleAlias is empty, it searches the root module.
-func (rc *ResolvedContext) ResolveSetup(moduleAlias, name string) (*Setup, error) {
-	var target *Module
-
-	if moduleAlias == "" {
-		// Local reference - search root module
-		target = rc.Root
-	} else {
-		// Import reference
-		var ok bool
-
-		target, ok = rc.Imports[moduleAlias]
-		if !ok {
-			return nil, &ResolveError{
-				Module: moduleAlias,
-				Name:   name,
-				Cause:  ErrUnknownModule,
-			}
-		}
-	}
-
-	setup, ok := target.Setups[name]
+// ResolveModule looks up a module by alias.
+// Returns an error if the module is not found.
+func (rc *ResolvedContext) ResolveModule(alias string) (*Module, error) {
+	mod, ok := rc.Imports[alias]
 	if !ok {
 		return nil, &ResolveError{
-			Module:        moduleAlias,
-			Name:          name,
-			AvailablePath: target.Path,
-			Cause:         ErrUnknownSetup,
+			Module: alias,
+			Cause:  ErrUnknownModule,
+		}
+	}
+	return mod, nil
+}
+
+// ResolveQuery looks up a query by module alias and query name.
+// Returns the query body and any error.
+func (rc *ResolvedContext) ResolveQuery(moduleAlias, queryName string) (string, error) {
+	mod, ok := rc.Imports[moduleAlias]
+	if !ok {
+		return "", &ResolveError{
+			Module: moduleAlias,
+			Name:   queryName,
+			Cause:  ErrUnknownModule,
 		}
 	}
 
-	return setup, nil
+	query, ok := mod.GetQuery(queryName)
+	if !ok {
+		return "", &ResolveError{
+			Module:        moduleAlias,
+			Name:          queryName,
+			AvailablePath: mod.Path,
+			Cause:         ErrUnknownQuery,
+		}
+	}
+
+	return query, nil
 }
 
 // GetQueries returns a combined query map with all queries from root and imports.
@@ -211,14 +132,14 @@ func (rc *ResolvedContext) GetQueries() map[string]string {
 	queries := make(map[string]string)
 
 	// Add root queries
-	for _, q := range rc.Root.Suite.Queries {
-		queries[q.Name] = q.Body
+	for name, body := range rc.Root.Queries {
+		queries[name] = body
 	}
 
 	// Add imported queries with prefix
 	for alias, mod := range rc.Imports {
-		for _, q := range mod.Suite.Queries {
-			queries[alias+"."+q.Name] = q.Body
+		for name, body := range mod.Queries {
+			queries[alias+"."+name] = body
 		}
 	}
 

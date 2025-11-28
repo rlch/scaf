@@ -312,13 +312,12 @@ func TestRunner_RunFileConvenience(t *testing.T) {
 
 	tmpDir := t.TempDir()
 
-	// Create a simple module
+	// Create a simple module with inline setup
 	content := `
-query SetupData ` + "`CREATE (:Data)`" + `
 query GetData ` + "`MATCH (d:Data) RETURN d`" + `
 
 GetData {
-	setup SetupData()
+	setup ` + "`CREATE (:Data)`" + `
 	
 	test "basic" {}
 }
@@ -344,7 +343,7 @@ GetData {
 		t.Errorf("Passed = %d, want 1", result.Passed)
 	}
 
-	// Verify local setup was executed
+	// Verify setup was executed
 	if len(d.executed) < 2 {
 		t.Fatalf("Expected at least 2 queries, got %d", len(d.executed))
 	}

@@ -264,10 +264,11 @@ func TestInferParamTypeWithAnalyzerHint(t *testing.T) {
 func TestInferReturnTypeWithAnalyzerHint(t *testing.T) {
 	t.Parallel()
 
-	// When analyzer provides a type hint, use it
+	// When analyzer provides a type, use it directly
+	// The Cypher analyzer now returns Go type strings from schema
 	ret := scaf.ReturnInfo{
 		Name: "count",
-		Type: "integer", // Analyzer-provided type hint
+		Type: "int64", // Analyzer-provided Go type from schema
 	}
 
 	typ := inferReturnType(ret, nil)
@@ -375,56 +376,6 @@ func TestLookupFieldTypeInModel(t *testing.T) {
 
 	// Nil schema
 	assert.Nil(t, LookupFieldTypeInModel("User", "id", nil))
-}
-
-func TestMapAnalyzerType(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		input    string
-		expected string
-	}{
-		// String types
-		{"string", "string"},
-		{"text", "string"},
-		{"STRING", "string"},
-
-		// Integer types
-		{"int", "int64"},
-		{"integer", "int64"},
-		{"long", "int64"},
-
-		// Float types
-		{"float", "float64"},
-		{"double", "float64"},
-		{"decimal", "float64"},
-
-		// Boolean types
-		{"bool", "bool"},
-		{"boolean", "bool"},
-
-		// Date/time types
-		{"date", "time.Time"},
-		{"datetime", "time.Time"},
-		{"timestamp", "time.Time"},
-
-		// Collection types
-		{"list", "[]any"},
-		{"array", "[]any"},
-		{"map", "map[string]any"},
-		{"object", "map[string]any"},
-
-		// Unknown defaults to any
-		{"unknown", "any"},
-		{"", "any"},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.input, func(t *testing.T) {
-			t.Parallel()
-			assert.Equal(t, tt.expected, mapAnalyzerType(tt.input))
-		})
-	}
 }
 
 func TestTypeToGoString(t *testing.T) {

@@ -1,6 +1,10 @@
 package module
 
-import "github.com/rlch/scaf"
+import (
+	"fmt"
+
+	"github.com/rlch/scaf"
+)
 
 // Resolver handles module dependency resolution and cycle detection.
 type Resolver struct {
@@ -81,8 +85,7 @@ func (r *Resolver) resolveImports( //nolint:funcorder
 			// Same alias pointing to different modules - error
 			return &ResolveError{
 				Module: alias,
-				Name:   "",
-				Cause:  ErrDuplicateSetup, // TODO: more specific error
+				Cause:  fmt.Errorf("alias %q already used for %s", alias, existing.Path),
 			}
 		}
 

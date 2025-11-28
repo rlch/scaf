@@ -26,15 +26,9 @@ func (s *Server) SetTrace(_ context.Context, _ *protocol.SetTraceParams) error {
 	return nil
 }
 
-// CodeAction handles textDocument/codeAction.
-func (s *Server) CodeAction(_ context.Context, _ *protocol.CodeActionParams) ([]protocol.CodeAction, error) {
-	return nil, nil
-}
+// CodeAction is implemented in codeactions.go
 
-// CodeLens handles textDocument/codeLens.
-func (s *Server) CodeLens(_ context.Context, _ *protocol.CodeLensParams) ([]protocol.CodeLens, error) {
-	return nil, nil
-}
+// CodeLens is implemented in codelens.go
 
 // CodeLensResolve handles codeLens/resolve.
 func (s *Server) CodeLensResolve(_ context.Context, _ *protocol.CodeLens) (*protocol.CodeLens, error) {
@@ -80,40 +74,25 @@ func (s *Server) DocumentColor(_ context.Context, _ *protocol.DocumentColorParam
 	return nil, nil
 }
 
-// DocumentHighlight handles textDocument/documentHighlight.
-func (s *Server) DocumentHighlight(_ context.Context, _ *protocol.DocumentHighlightParams) ([]protocol.DocumentHighlight, error) {
-	return nil, nil
-}
+// DocumentHighlight is implemented in highlight.go
 
-// DocumentLink handles textDocument/documentLink.
-func (s *Server) DocumentLink(_ context.Context, _ *protocol.DocumentLinkParams) ([]protocol.DocumentLink, error) {
-	return nil, nil
-}
+// DocumentLink is implemented in documentlink.go
 
 // DocumentLinkResolve handles documentLink/resolve.
 func (s *Server) DocumentLinkResolve(_ context.Context, _ *protocol.DocumentLink) (*protocol.DocumentLink, error) {
 	return nil, nil //nolint:nilnil // LSP stub returns nil for unimplemented features
 }
 
-// DocumentSymbol handles textDocument/documentSymbol.
-func (s *Server) DocumentSymbol(_ context.Context, _ *protocol.DocumentSymbolParams) ([]any, error) {
-	return nil, nil
-}
+// DocumentSymbol is implemented in symbols.go
 
 // ExecuteCommand handles workspace/executeCommand.
 func (s *Server) ExecuteCommand(_ context.Context, _ *protocol.ExecuteCommandParams) (any, error) {
 	return nil, nil //nolint:nilnil // LSP stub returns nil for unimplemented features
 }
 
-// FoldingRanges handles textDocument/foldingRange.
-func (s *Server) FoldingRanges(_ context.Context, _ *protocol.FoldingRangeParams) ([]protocol.FoldingRange, error) {
-	return nil, nil
-}
+// FoldingRanges is implemented in folding.go
 
-// Formatting handles textDocument/formatting.
-func (s *Server) Formatting(_ context.Context, _ *protocol.DocumentFormattingParams) ([]protocol.TextEdit, error) {
-	return nil, nil
-}
+// Formatting is implemented in formatting.go
 
 // Implementation handles textDocument/implementation.
 func (s *Server) Implementation(_ context.Context, _ *protocol.ImplementationParams) ([]protocol.Location, error) {
@@ -125,35 +104,20 @@ func (s *Server) OnTypeFormatting(_ context.Context, _ *protocol.DocumentOnTypeF
 	return nil, nil
 }
 
-// PrepareRename handles textDocument/prepareRename.
-func (s *Server) PrepareRename(_ context.Context, _ *protocol.PrepareRenameParams) (*protocol.Range, error) {
-	return nil, nil //nolint:nilnil // LSP stub returns nil for unimplemented features
-}
+// PrepareRename is implemented in rename.go
 
 // RangeFormatting handles textDocument/rangeFormatting.
 func (s *Server) RangeFormatting(_ context.Context, _ *protocol.DocumentRangeFormattingParams) ([]protocol.TextEdit, error) {
 	return nil, nil
 }
 
-// References handles textDocument/references.
-func (s *Server) References(_ context.Context, _ *protocol.ReferenceParams) ([]protocol.Location, error) {
-	return nil, nil
-}
+// References is implemented in references.go
 
-// Rename handles textDocument/rename.
-func (s *Server) Rename(_ context.Context, _ *protocol.RenameParams) (*protocol.WorkspaceEdit, error) {
-	return nil, nil //nolint:nilnil // LSP stub returns nil for unimplemented features
-}
+// Rename is implemented in rename.go
 
-// SignatureHelp handles textDocument/signatureHelp.
-func (s *Server) SignatureHelp(_ context.Context, _ *protocol.SignatureHelpParams) (*protocol.SignatureHelp, error) {
-	return nil, nil //nolint:nilnil // LSP stub returns nil for unimplemented features
-}
+// SignatureHelp is implemented in signature.go
 
-// Symbols handles workspace/symbol.
-func (s *Server) Symbols(_ context.Context, _ *protocol.WorkspaceSymbolParams) ([]protocol.SymbolInformation, error) {
-	return nil, nil
-}
+// Symbols is implemented in workspace_symbols.go
 
 // TypeDefinition handles textDocument/typeDefinition.
 func (s *Server) TypeDefinition(_ context.Context, _ *protocol.TypeDefinitionParams) ([]protocol.Location, error) {

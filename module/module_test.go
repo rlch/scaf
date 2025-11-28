@@ -14,59 +14,34 @@ func TestNewModule(t *testing.T) {
 	tests := []struct {
 		name          string
 		suite         *scaf.Suite
-		expectSetups  []string
-		expectParams  map[string][]string
+		expectQueries []string
 	}{
 		{
-			name: "no setup queries",
+			name: "no queries",
+			suite: &scaf.Suite{
+				Queries: nil,
+			},
+			expectQueries: nil,
+		},
+		{
+			name: "single query",
 			suite: &scaf.Suite{
 				Queries: []*scaf.Query{
 					{Name: "GetUser", Body: "MATCH (u:User) RETURN u"},
 				},
 			},
-			expectSetups: nil,
+			expectQueries: []string{"GetUser"},
 		},
 		{
-			name: "setup query by prefix",
-			suite: &scaf.Suite{
-				Queries: []*scaf.Query{
-					{Name: "SetupTestDB", Body: "CREATE (:TestNode)"},
-				},
-			},
-			expectSetups: []string{"SetupTestDB"},
-		},
-		{
-			name: "setup query by suffix",
-			suite: &scaf.Suite{
-				Queries: []*scaf.Query{
-					{Name: "DatabaseSetup", Body: "CREATE (:DB)"},
-				},
-			},
-			expectSetups: []string{"DatabaseSetup"},
-		},
-		{
-			name: "setup query with params",
-			suite: &scaf.Suite{
-				Queries: []*scaf.Query{
-					{Name: "SetupUsers", Body: "CREATE (:User {id: $userId, name: $name})"},
-				},
-			},
-			expectSetups: []string{"SetupUsers"},
-			expectParams: map[string][]string{
-				"SetupUsers": {"userId", "name"},
-			},
-		},
-		{
-			name: "mixed queries",
+			name: "multiple queries",
 			suite: &scaf.Suite{
 				Queries: []*scaf.Query{
 					{Name: "GetUser", Body: "MATCH (u) RETURN u"},
-					{Name: "SetupDB", Body: "CREATE (:Node)"},
 					{Name: "CreatePost", Body: "CREATE (:Post)"},
-					{Name: "TestSetup", Body: "CREATE (:Test)"},
+					{Name: "SetupDB", Body: "CREATE (:Node)"},
 				},
 			},
-			expectSetups: []string{"SetupDB", "TestSetup"},
+			expectQueries: []string{"GetUser", "CreatePost", "SetupDB"},
 		},
 	}
 
@@ -76,33 +51,19 @@ func TestNewModule(t *testing.T) {
 
 			mod := module.NewModule("/test/path.scaf", tt.suite)
 
-			// Check setups
-			gotSetups := make([]string, 0, len(mod.Setups))
-			for name := range mod.Setups {
-				gotSetups = append(gotSetups, name)
+			// Check queries
+			gotQueries := make([]string, 0, len(mod.Queries))
+			for name := range mod.Queries {
+				gotQueries = append(gotQueries, name)
 			}
 
-			if len(gotSetups) != len(tt.expectSetups) {
-				t.Errorf("Setups count = %d, want %d", len(gotSetups), len(tt.expectSetups))
+			if len(gotQueries) != len(tt.expectQueries) {
+				t.Errorf("Queries count = %d, want %d", len(gotQueries), len(tt.expectQueries))
 			}
 
-			for _, name := range tt.expectSetups {
-				if _, ok := mod.Setups[name]; !ok {
-					t.Errorf("Missing setup %q", name)
-				}
-			}
-
-			// Check params
-			for name, expectedParams := range tt.expectParams {
-				setup, ok := mod.Setups[name]
-				if !ok {
-					t.Errorf("Setup %q not found", name)
-
-					continue
-				}
-
-				if diff := cmp.Diff(expectedParams, setup.Params); diff != "" {
-					t.Errorf("Setup %q params mismatch (-want +got):\n%s", name, diff)
+			for _, name := range tt.expectQueries {
+				if _, ok := mod.Queries[name]; !ok {
+					t.Errorf("Missing query %q", name)
 				}
 			}
 		})
@@ -134,13 +95,13 @@ func TestModuleBaseName(t *testing.T) {
 	}
 }
 
-func TestResolvedContext_ResolveSetup(t *testing.T) {
+func TestResolvedContext_ResolveModule(t *testing.T) {
 	t.Parallel()
 
 	// Create root module
 	rootSuite := &scaf.Suite{
 		Queries: []*scaf.Query{
-			{Name: "SetupRoot", Body: "CREATE (:Root)"},
+			{Name: "GetUser", Body: "MATCH (u) RETURN u"},
 		},
 	}
 	root := module.NewModule("/root.scaf", rootSuite)
@@ -148,7 +109,7 @@ func TestResolvedContext_ResolveSetup(t *testing.T) {
 	// Create imported module
 	importedSuite := &scaf.Suite{
 		Queries: []*scaf.Query{
-			{Name: "SetupFixtures", Body: "CREATE (:Fixture {n: $n})"},
+			{Name: "CreateFixtures", Body: "CREATE (:Fixture {n: $n})"},
 		},
 	}
 	imported := module.NewModule("/fixtures.scaf", importedSuite)
@@ -160,39 +121,18 @@ func TestResolvedContext_ResolveSetup(t *testing.T) {
 
 	tests := []struct {
 		name        string
-		moduleAlias string
-		setupName   string
-		expectQuery string
+		alias       string
+		expectPath  string
 		expectError bool
 	}{
 		{
-			name:        "local setup",
-			moduleAlias: "",
-			setupName:   "SetupRoot",
-			expectQuery: "CREATE (:Root)",
-		},
-		{
-			name:        "imported setup",
-			moduleAlias: "fixtures",
-			setupName:   "SetupFixtures",
-			expectQuery: "CREATE (:Fixture {n: $n})",
+			name:       "resolve imported module",
+			alias:      "fixtures",
+			expectPath: "/fixtures.scaf",
 		},
 		{
 			name:        "unknown module",
-			moduleAlias: "nonexistent",
-			setupName:   "Setup",
-			expectError: true,
-		},
-		{
-			name:        "unknown setup in known module",
-			moduleAlias: "fixtures",
-			setupName:   "UnknownSetup",
-			expectError: true,
-		},
-		{
-			name:        "unknown local setup",
-			moduleAlias: "",
-			setupName:   "UnknownSetup",
+			alias:       "nonexistent",
 			expectError: true,
 		},
 	}
@@ -201,7 +141,7 @@ func TestResolvedContext_ResolveSetup(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			setup, err := ctx.ResolveSetup(tt.moduleAlias, tt.setupName)
+			mod, err := ctx.ResolveModule(tt.alias)
 			if tt.expectError {
 				if err == nil {
 					t.Error("Expected error, got nil")
@@ -214,8 +154,83 @@ func TestResolvedContext_ResolveSetup(t *testing.T) {
 				t.Fatalf("Unexpected error: %v", err)
 			}
 
-			if setup.Query != tt.expectQuery {
-				t.Errorf("Query = %q, want %q", setup.Query, tt.expectQuery)
+			if mod.Path != tt.expectPath {
+				t.Errorf("Path = %q, want %q", mod.Path, tt.expectPath)
+			}
+		})
+	}
+}
+
+func TestResolvedContext_ResolveQuery(t *testing.T) {
+	t.Parallel()
+
+	// Create root module
+	rootSuite := &scaf.Suite{
+		Queries: []*scaf.Query{
+			{Name: "GetUser", Body: "MATCH (u) RETURN u"},
+		},
+	}
+	root := module.NewModule("/root.scaf", rootSuite)
+
+	// Create imported module
+	importedSuite := &scaf.Suite{
+		Queries: []*scaf.Query{
+			{Name: "CreateFixtures", Body: "CREATE (:Fixture {n: $n})"},
+		},
+	}
+	imported := module.NewModule("/fixtures.scaf", importedSuite)
+
+	// Build context
+	ctx := module.NewResolvedContext(root)
+	ctx.Imports["fixtures"] = imported
+	ctx.AllModules[imported.Path] = imported
+
+	tests := []struct {
+		name        string
+		moduleAlias string
+		queryName   string
+		expectQuery string
+		expectError bool
+	}{
+		{
+			name:        "resolve imported query",
+			moduleAlias: "fixtures",
+			queryName:   "CreateFixtures",
+			expectQuery: "CREATE (:Fixture {n: $n})",
+		},
+		{
+			name:        "unknown module",
+			moduleAlias: "nonexistent",
+			queryName:   "SomeQuery",
+			expectError: true,
+		},
+		{
+			name:        "unknown query in known module",
+			moduleAlias: "fixtures",
+			queryName:   "UnknownQuery",
+			expectError: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			query, err := ctx.ResolveQuery(tt.moduleAlias, tt.queryName)
+			if tt.expectError {
+				if err == nil {
+					t.Error("Expected error, got nil")
+				}
+
+				return
+			}
+
+			if err != nil {
+				t.Fatalf("Unexpected error: %v", err)
+			}
+
+			if query != tt.expectQuery {
+				t.Errorf("Query = %q, want %q", query, tt.expectQuery)
 			}
 		})
 	}
@@ -253,4 +268,77 @@ func TestResolvedContext_GetQueries(t *testing.T) {
 	if diff := cmp.Diff(expected, queries); diff != "" {
 		t.Errorf("GetQueries() mismatch (-want +got):\n%s", diff)
 	}
+}
+
+func TestModule_GetSetup(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name      string
+		suite     *scaf.Suite
+		hasSetup  bool
+	}{
+		{
+			name:     "no setup",
+			suite:    &scaf.Suite{},
+			hasSetup: false,
+		},
+		{
+			name: "with setup",
+			suite: &scaf.Suite{
+				Setup: &scaf.SetupClause{Inline: ptr("CREATE (:Node)")},
+			},
+			hasSetup: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			mod := module.NewModule("/test.scaf", tt.suite)
+
+			if got := mod.HasSetup(); got != tt.hasSetup {
+				t.Errorf("HasSetup() = %v, want %v", got, tt.hasSetup)
+			}
+
+			setup := mod.GetSetup()
+			if tt.hasSetup && setup == nil {
+				t.Error("GetSetup() returned nil, want setup")
+			}
+			if !tt.hasSetup && setup != nil {
+				t.Error("GetSetup() returned setup, want nil")
+			}
+		})
+	}
+}
+
+func TestModule_GetQuery(t *testing.T) {
+	t.Parallel()
+
+	suite := &scaf.Suite{
+		Queries: []*scaf.Query{
+			{Name: "GetUser", Body: "MATCH (u) RETURN u"},
+		},
+	}
+	mod := module.NewModule("/test.scaf", suite)
+
+	// Test existing query
+	query, ok := mod.GetQuery("GetUser")
+	if !ok {
+		t.Error("GetQuery() returned false for existing query")
+	}
+	if query != "MATCH (u) RETURN u" {
+		t.Errorf("GetQuery() = %q, want %q", query, "MATCH (u) RETURN u")
+	}
+
+	// Test non-existing query
+	_, ok = mod.GetQuery("NonExistent")
+	if ok {
+		t.Error("GetQuery() returned true for non-existing query")
+	}
+}
+
+func ptr[T any](v T) *T {
+	return &v
 }

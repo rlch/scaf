@@ -1,4 +1,4 @@
-# yaml-language-server: $schema=https://raw.githubusercontent.com/rlch/scaf/main/.scaf.schema.json
+# yaml-language-server: $schema=https://raw.githubusercontent.com/rlch/scaf/refs/heads/master/.scaf.schema.json
 
 neo4j:
   uri: bolt://localhost:7687

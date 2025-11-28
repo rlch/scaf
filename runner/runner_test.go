@@ -452,7 +452,7 @@ func ptr[T any](v T) *T {
 	return &v
 }
 
-func TestRunner_NamedSetupWithModules(t *testing.T) {
+func TestRunner_SetupCallWithModules(t *testing.T) {
 	// Create a mock database that tracks executed queries
 	d := &mockDatabase{}
 
@@ -470,9 +470,9 @@ func TestRunner_NamedSetupWithModules(t *testing.T) {
 		Scopes: []*scaf.QueryScope{{
 			QueryName: "GetUser",
 			Setup: &scaf.SetupClause{
-				Named: &scaf.NamedSetup{
-					Module: ptr("fixtures"),
-					Name:   "SetupUsers",
+				Call: &scaf.SetupCall{
+					Module: "fixtures",
+					Query:  "SetupUsers",
 					Params: []*scaf.SetupParam{
 						{Name: "$name", Value: &scaf.ParamValue{Literal: &scaf.Value{Str: ptr("Alice")}}},
 					},
@@ -515,7 +515,7 @@ func TestRunner_NamedSetupWithModules(t *testing.T) {
 	}
 }
 
-func TestRunner_NamedSetupWithoutModules(t *testing.T) {
+func TestRunner_SetupCallWithoutModules(t *testing.T) {
 	d := &mockDatabase{}
 	r := New(WithDatabase(d)) // No modules configured
 
@@ -524,8 +524,9 @@ func TestRunner_NamedSetupWithoutModules(t *testing.T) {
 		Scopes: []*scaf.QueryScope{{
 			QueryName: "GetUser",
 			Setup: &scaf.SetupClause{
-				Named: &scaf.NamedSetup{
-					Name: "SomeSetup",
+				Call: &scaf.SetupCall{
+					Module: "fixtures",
+					Query:  "SomeSetup",
 				},
 			},
 			Items: []*scaf.TestOrGroup{{
@@ -538,25 +539,31 @@ func TestRunner_NamedSetupWithoutModules(t *testing.T) {
 
 	// Should error because no modules configured
 	if err == nil {
-		t.Error("Expected error for named setup without modules")
+		t.Error("Expected error for setup call without modules")
 	}
 }
 
-func TestRunner_LocalNamedSetup(t *testing.T) {
+func TestRunner_SetupModuleReference(t *testing.T) {
 	d := &mockDatabase{}
 
-	// Create suite with local setup query
+	// Create a fixtures module with a setup clause
+	fixturesSuite := &scaf.Suite{
+		Setup: &scaf.SetupClause{Inline: ptr("CREATE (:TestNode)")},
+		Queries: []*scaf.Query{
+			{Name: "GetFixtures", Body: "MATCH (n:TestNode) RETURN n"},
+		},
+	}
+
+	// Create suite that references the module's setup
 	suite := &scaf.Suite{
 		Queries: []*scaf.Query{
 			{Name: "GetUser", Body: "MATCH (u:User) RETURN u.name"},
-			{Name: "SetupTestDB", Body: "CREATE (:TestNode)"},
 		},
+		Imports: []*scaf.Import{{Alias: ptr("fixtures"), Path: "./fixtures.scaf"}},
 		Scopes: []*scaf.QueryScope{{
 			QueryName: "GetUser",
 			Setup: &scaf.SetupClause{
-				Named: &scaf.NamedSetup{
-					Name: "SetupTestDB", // No module prefix = local
-				},
+				Module: ptr("fixtures"), // Module reference runs the module's setup clause
 			},
 			Items: []*scaf.TestOrGroup{{
 				Test: &scaf.Test{Name: "test"},
@@ -564,9 +571,13 @@ func TestRunner_LocalNamedSetup(t *testing.T) {
 		}},
 	}
 
-	// Build module context for local module
+	// Build module context
 	rootMod := module.NewModule("/root.scaf", suite)
+	fixturesMod := module.NewModule("/fixtures.scaf", fixturesSuite)
+
 	ctx := module.NewResolvedContext(rootMod)
+	ctx.Imports["fixtures"] = fixturesMod
+	ctx.AllModules[fixturesMod.Path] = fixturesMod
 
 	r := New(WithDatabase(d), WithModules(ctx))
 

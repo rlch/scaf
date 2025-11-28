@@ -15,14 +15,14 @@ var (
 	// ErrCyclicDependency is returned when a cycle is detected in the import graph.
 	ErrCyclicDependency = errors.New("module: cyclic dependency detected")
 
-	// ErrUnknownSetup is returned when a named setup reference cannot be resolved.
-	ErrUnknownSetup = errors.New("module: unknown setup")
-
 	// ErrUnknownModule is returned when a module alias cannot be resolved.
 	ErrUnknownModule = errors.New("module: unknown module alias")
 
-	// ErrDuplicateSetup is returned when multiple setups have the same name.
-	ErrDuplicateSetup = errors.New("module: duplicate setup name")
+	// ErrUnknownQuery is returned when a query cannot be found in a module.
+	ErrUnknownQuery = errors.New("module: unknown query")
+
+	// ErrNoSetup is returned when a module has no setup clause.
+	ErrNoSetup = errors.New("module: no setup clause")
 
 	// ErrParseError is returned when a module fails to parse.
 	ErrParseError = errors.New("module: parse error")

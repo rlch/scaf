@@ -16,6 +16,10 @@ type Analyzer struct {
 	// Can be nil for single-file analysis.
 	loader FileLoader
 
+	// resolver is used for cross-file validation (e.g., checking setup call targets).
+	// Can be nil if cross-file validation is not needed.
+	resolver CrossFileResolver
+
 	// rules is the set of semantic checks to run.
 	rules []*Rule
 }
@@ -27,12 +31,34 @@ type FileLoader interface {
 	Load(path string) ([]byte, error)
 }
 
+// CrossFileResolver is an interface for resolving and analyzing imported files.
+// This enables cross-file validation like checking if a setup call references
+// a query that exists in the imported module.
+type CrossFileResolver interface {
+	// ResolveImportPath resolves a relative import path to an absolute file path.
+	ResolveImportPath(basePath, importPath string) string
+
+	// LoadAndAnalyze loads and analyzes an imported file, returning its analysis.
+	// Returns nil if the file cannot be loaded or analyzed.
+	LoadAndAnalyze(path string) *AnalyzedFile
+}
+
 // NewAnalyzer creates a new analyzer with default rules.
 // Pass nil for loader to do single-file analysis only.
 func NewAnalyzer(loader FileLoader) *Analyzer {
 	return &Analyzer{
 		loader: loader,
 		rules:  DefaultRules(),
+	}
+}
+
+// NewAnalyzerWithResolver creates an analyzer with cross-file resolution support.
+// The resolver enables validation of setup calls against imported modules.
+func NewAnalyzerWithResolver(loader FileLoader, resolver CrossFileResolver) *Analyzer {
+	return &Analyzer{
+		loader:   loader,
+		resolver: resolver,
+		rules:    DefaultRules(),
 	}
 }
 
@@ -52,6 +78,7 @@ func (a *Analyzer) Analyze(path string, content []byte) *AnalyzedFile {
 		Path:        path,
 		Diagnostics: []Diagnostic{},
 		Symbols:     NewSymbolTable(),
+		Resolver:    a.resolver,
 	}
 
 	// Parse the file - returns partial AST even on error.

@@ -34,9 +34,11 @@ func NodeAtPosition(f *AnalyzedFile, pos lexer.Position) scaf.Node {
 
 	// Check global setup clause (Suite.Setup).
 	if f.Suite.Setup != nil && containsPosition(f.Suite.Setup.Span(), pos) {
-		// Check for named setup inside
-		if f.Suite.Setup.Named != nil && containsPosition(f.Suite.Setup.Named.Span(), pos) {
-			best = f.Suite.Setup.Named
+		// Check for call inside
+		if f.Suite.Setup.Call != nil && containsPosition(f.Suite.Setup.Call.Span(), pos) {
+			best = f.Suite.Setup.Call
+		} else if child := nodeInSetupBlock(f.Suite.Setup, pos); child != nil {
+			best = child
 		} else {
 			best = f.Suite.Setup
 		}
@@ -61,9 +63,13 @@ func NodeAtPosition(f *AnalyzedFile, pos lexer.Position) scaf.Node {
 func nodeInScope(scope *scaf.QueryScope, pos lexer.Position) scaf.Node {
 	// Check setup clause first (more specific)
 	if scope.Setup != nil && containsPosition(scope.Setup.Span(), pos) {
-		// Check for named setup inside
-		if scope.Setup.Named != nil && containsPosition(scope.Setup.Named.Span(), pos) {
-			return scope.Setup.Named
+		// Check for call inside
+		if scope.Setup.Call != nil && containsPosition(scope.Setup.Call.Span(), pos) {
+			return scope.Setup.Call
+		}
+		// Check for block items
+		if child := nodeInSetupBlock(scope.Setup, pos); child != nil {
+			return child
 		}
 		return scope.Setup
 	}
@@ -73,6 +79,22 @@ func nodeInScope(scope *scaf.QueryScope, pos lexer.Position) scaf.Node {
 		return child
 	}
 
+	return nil
+}
+
+// nodeInSetupBlock checks for more specific nodes within a setup block.
+//
+//nolint:ireturn // Returning interface is intentional for AST node polymorphism.
+func nodeInSetupBlock(setup *scaf.SetupClause, pos lexer.Position) scaf.Node {
+	for _, item := range setup.Block {
+		if containsPosition(item.Span(), pos) {
+			// Check for call inside the item
+			if item.Call != nil && containsPosition(item.Call.Span(), pos) {
+				return item.Call
+			}
+			return item
+		}
+	}
 	return nil
 }
 
@@ -90,8 +112,11 @@ func nodeInItems(items []*scaf.TestOrGroup, pos lexer.Position) scaf.Node {
 		if item.Group != nil && containsPosition(item.Group.Span(), pos) {
 			// Check setup in group
 			if item.Group.Setup != nil && containsPosition(item.Group.Setup.Span(), pos) {
-				if item.Group.Setup.Named != nil && containsPosition(item.Group.Setup.Named.Span(), pos) {
-					return item.Group.Setup.Named
+				if item.Group.Setup.Call != nil && containsPosition(item.Group.Setup.Call.Span(), pos) {
+					return item.Group.Setup.Call
+				}
+				if child := nodeInSetupBlock(item.Group.Setup, pos); child != nil {
+					return child
 				}
 				return item.Group.Setup
 			}
@@ -112,8 +137,11 @@ func nodeInItems(items []*scaf.TestOrGroup, pos lexer.Position) scaf.Node {
 func nodeInTest(test *scaf.Test, pos lexer.Position) scaf.Node {
 	// Check setup
 	if test.Setup != nil && containsPosition(test.Setup.Span(), pos) {
-		if test.Setup.Named != nil && containsPosition(test.Setup.Named.Span(), pos) {
-			return test.Setup.Named
+		if test.Setup.Call != nil && containsPosition(test.Setup.Call.Span(), pos) {
+			return test.Setup.Call
+		}
+		if child := nodeInSetupBlock(test.Setup, pos); child != nil {
+			return child
 		}
 		return test.Setup
 	}
@@ -398,10 +426,10 @@ func findTokenInSetup(setup *scaf.SetupClause, pos lexer.Position) *lexer.Token 
 		}
 	}
 
-	// Check named setup
-	if setup.Named != nil {
-		for i := range setup.Named.Tokens {
-			tok := &setup.Named.Tokens[i]
+	// Check setup call
+	if setup.Call != nil {
+		for i := range setup.Call.Tokens {
+			tok := &setup.Call.Tokens[i]
 			if tokenContainsPosition(tok, pos) {
 				return tok
 			}
@@ -416,9 +444,9 @@ func findTokenInSetup(setup *scaf.SetupClause, pos lexer.Position) *lexer.Token 
 				return tok
 			}
 		}
-		if item.Named != nil {
-			for i := range item.Named.Tokens {
-				tok := &item.Named.Tokens[i]
+		if item.Call != nil {
+			for i := range item.Call.Tokens {
+				tok := &item.Call.Tokens[i]
 				if tokenContainsPosition(tok, pos) {
 					return tok
 				}
@@ -635,9 +663,9 @@ func findPrevTokenInSetupClause(setup *scaf.SetupClause, pos lexer.Position, bes
 		checkToken(&setup.Tokens[i])
 	}
 
-	if setup.Named != nil {
-		for i := range setup.Named.Tokens {
-			checkToken(&setup.Named.Tokens[i])
+	if setup.Call != nil {
+		for i := range setup.Call.Tokens {
+			checkToken(&setup.Call.Tokens[i])
 		}
 	}
 
@@ -646,9 +674,9 @@ func findPrevTokenInSetupClause(setup *scaf.SetupClause, pos lexer.Position, bes
 		for i := range item.Tokens {
 			checkToken(&item.Tokens[i])
 		}
-		if item.Named != nil {
-			for i := range item.Named.Tokens {
-				checkToken(&item.Named.Tokens[i])
+		if item.Call != nil {
+			for i := range item.Call.Tokens {
+				checkToken(&item.Call.Tokens[i])
 			}
 		}
 	}

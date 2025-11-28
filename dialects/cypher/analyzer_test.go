@@ -518,3 +518,196 @@ func TestAnalyzer_AnalyzeQueryWithSchema_NilSchema(t *testing.T) {
 		t.Error("ReturnsOne should be false when schema is nil")
 	}
 }
+
+func TestAnalyzer_AnalyzeQueryWithSchema_TypeInference(t *testing.T) {
+	t.Parallel()
+
+	// Schema with User and Movie models
+	schema := &analysis.TypeSchema{
+		Models: map[string]*analysis.Model{
+			"User": {
+				Name: "User",
+				Fields: []*analysis.Field{
+					{Name: "id", Type: analysis.TypeString, Unique: true},
+					{Name: "email", Type: analysis.TypeString, Unique: true},
+					{Name: "name", Type: analysis.TypeString},
+					{Name: "age", Type: analysis.TypeInt},
+					{Name: "active", Type: analysis.TypeBool},
+					{Name: "score", Type: analysis.TypeFloat64},
+				},
+			},
+			"Movie": {
+				Name: "Movie",
+				Fields: []*analysis.Field{
+					{Name: "id", Type: analysis.TypeString, Unique: true},
+					{Name: "title", Type: analysis.TypeString},
+					{Name: "year", Type: analysis.TypeInt},
+					{Name: "genres", Type: analysis.SliceOf(analysis.TypeString)},
+				},
+			},
+		},
+	}
+
+	t.Run("parameter type inference", func(t *testing.T) {
+		t.Parallel()
+
+		analyzer := cypher.NewAnalyzer()
+
+		metadata, err := analyzer.AnalyzeQueryWithSchema(
+			"MATCH (u:User {id: $userId, age: $minAge}) RETURN u.name",
+			schema,
+		)
+		if err != nil {
+			t.Fatalf("AnalyzeQueryWithSchema() error: %v", err)
+		}
+
+		// Check parameter types
+		paramTypes := make(map[string]string)
+		for _, p := range metadata.Parameters {
+			paramTypes[p.Name] = p.Type
+		}
+
+		if paramTypes["userId"] != "string" {
+			t.Errorf("userId type = %q, want 'string'", paramTypes["userId"])
+		}
+		if paramTypes["minAge"] != "int" {
+			t.Errorf("minAge type = %q, want 'int'", paramTypes["minAge"])
+		}
+	})
+
+	t.Run("return type inference - property access", func(t *testing.T) {
+		t.Parallel()
+
+		analyzer := cypher.NewAnalyzer()
+
+		metadata, err := analyzer.AnalyzeQueryWithSchema(
+			"MATCH (u:User) RETURN u.name, u.age, u.active, u.score",
+			schema,
+		)
+		if err != nil {
+			t.Fatalf("AnalyzeQueryWithSchema() error: %v", err)
+		}
+
+		// Check return types
+		returnTypes := make(map[string]string)
+		for _, r := range metadata.Returns {
+			returnTypes[r.Name] = r.Type
+		}
+
+		if returnTypes["name"] != "string" {
+			t.Errorf("name type = %q, want 'string'", returnTypes["name"])
+		}
+		if returnTypes["age"] != "int" {
+			t.Errorf("age type = %q, want 'int'", returnTypes["age"])
+		}
+		if returnTypes["active"] != "bool" {
+			t.Errorf("active type = %q, want 'bool'", returnTypes["active"])
+		}
+		if returnTypes["score"] != "float64" {
+			t.Errorf("score type = %q, want 'float64'", returnTypes["score"])
+		}
+	})
+
+	t.Run("return type inference - whole node", func(t *testing.T) {
+		t.Parallel()
+
+		analyzer := cypher.NewAnalyzer()
+
+		metadata, err := analyzer.AnalyzeQueryWithSchema(
+			"MATCH (u:User) RETURN u",
+			schema,
+		)
+		if err != nil {
+			t.Fatalf("AnalyzeQueryWithSchema() error: %v", err)
+		}
+
+		if len(metadata.Returns) != 1 {
+			t.Fatalf("expected 1 return, got %d", len(metadata.Returns))
+		}
+
+		// Returning whole node should have type "*User"
+		if metadata.Returns[0].Type != "*User" {
+			t.Errorf("return type = %q, want '*User'", metadata.Returns[0].Type)
+		}
+	})
+
+	t.Run("return type inference - multiple models", func(t *testing.T) {
+		t.Parallel()
+
+		analyzer := cypher.NewAnalyzer()
+
+		metadata, err := analyzer.AnalyzeQueryWithSchema(
+			"MATCH (u:User)-[:LIKES]->(m:Movie) RETURN u.name, m.title, m.year",
+			schema,
+		)
+		if err != nil {
+			t.Fatalf("AnalyzeQueryWithSchema() error: %v", err)
+		}
+
+		returnTypes := make(map[string]string)
+		for _, r := range metadata.Returns {
+			returnTypes[r.Name] = r.Type
+		}
+
+		if returnTypes["name"] != "string" {
+			t.Errorf("name type = %q, want 'string'", returnTypes["name"])
+		}
+		if returnTypes["title"] != "string" {
+			t.Errorf("title type = %q, want 'string'", returnTypes["title"])
+		}
+		if returnTypes["year"] != "int" {
+			t.Errorf("year type = %q, want 'int'", returnTypes["year"])
+		}
+	})
+
+	t.Run("return type inference - slice type", func(t *testing.T) {
+		t.Parallel()
+
+		analyzer := cypher.NewAnalyzer()
+
+		metadata, err := analyzer.AnalyzeQueryWithSchema(
+			"MATCH (m:Movie) RETURN m.genres",
+			schema,
+		)
+		if err != nil {
+			t.Fatalf("AnalyzeQueryWithSchema() error: %v", err)
+		}
+
+		if len(metadata.Returns) != 1 {
+			t.Fatalf("expected 1 return, got %d", len(metadata.Returns))
+		}
+
+		if metadata.Returns[0].Type != "[]string" {
+			t.Errorf("genres type = %q, want '[]string'", metadata.Returns[0].Type)
+		}
+	})
+
+	t.Run("unknown model - no type inference", func(t *testing.T) {
+		t.Parallel()
+
+		analyzer := cypher.NewAnalyzer()
+
+		metadata, err := analyzer.AnalyzeQueryWithSchema(
+			"MATCH (p:Product {id: $id}) RETURN p.name",
+			schema,
+		)
+		if err != nil {
+			t.Fatalf("AnalyzeQueryWithSchema() error: %v", err)
+		}
+
+		// Unknown model - should have empty type
+		if len(metadata.Parameters) != 1 {
+			t.Fatalf("expected 1 parameter, got %d", len(metadata.Parameters))
+		}
+		if metadata.Parameters[0].Type != "" {
+			t.Errorf("parameter type = %q, want empty (unknown model)", metadata.Parameters[0].Type)
+		}
+
+		if len(metadata.Returns) != 1 {
+			t.Fatalf("expected 1 return, got %d", len(metadata.Returns))
+		}
+		if metadata.Returns[0].Type != "" {
+			t.Errorf("return type = %q, want empty (unknown model)", metadata.Returns[0].Type)
+		}
+	})
+}
