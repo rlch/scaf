@@ -233,13 +233,13 @@ import (
 	"github.com/example/db"
 )
 
-func CountUsers() []int {
+func CountUsers() []*int {
 	return countUsersImpl()
 }
 
-var countUsersImpl func() []int = countUsersProd
+var countUsersImpl func() []*int = countUsersProd
 
-func countUsersProd() []int {
+func countUsersProd() []*int {
 	return db.Query(ctx, query)
 }
 `

@@ -744,6 +744,13 @@ func TestAnalyzer_RequiredField(t *testing.T) {
 					{Name: "tags", Type: analysis.SliceOf(analysis.TypeString), Required: false},
 				},
 			},
+			"Comment": {
+				Name: "Comment",
+				Fields: []*analysis.Field{
+					{Name: "id", Type: analysis.TypeString, Required: true},
+					{Name: "text", Type: analysis.TypeString, Required: true},
+				},
+			},
 		},
 	}
 
@@ -784,10 +791,48 @@ func TestAnalyzer_RequiredField(t *testing.T) {
 			wantRequired: false,
 		},
 		{
-			name:         "complex expression defaults to required",
+			name:         "complex expression defaults to nullable",
 			query:        "MATCH (u:User) RETURN u.bio IS NULL",
 			wantType:     "bool",
-			wantRequired: true, // Not a simple property access
+			wantRequired: false, // Not a simple property access - bail to nullable
+		},
+		// OPTIONAL MATCH tests
+		{
+			name:         "optional match simple property",
+			query:        "MATCH (c:Comment) OPTIONAL MATCH (u:User)-[:WROTE]->(c) RETURN u.id",
+			wantType:     "string",
+			wantRequired: false, // OPTIONAL MATCH forces nullable
+		},
+		// Complex expression bailout tests - representative cases
+		{
+			name:         "function call bails to nullable",
+			query:        "MATCH (u:User) RETURN toUpper(u.id)",
+			wantType:     "string",
+			wantRequired: false, // Function wrapping - can't trust schema
+		},
+		{
+			name:         "case expression bails to nullable",
+			query:        "MATCH (u:User) RETURN CASE WHEN u.age > 18 THEN 'adult' ELSE 'minor' END",
+			wantType:     "string",
+			wantRequired: false, // CASE expression - can return null
+		},
+		{
+			name:         "aggregate bails to nullable",
+			query:        "MATCH (u:User) RETURN count(u)",
+			wantType:     "int",
+			wantRequired: false, // Aggregate - bail to nullable (future: whitelist count as safe)
+		},
+		{
+			name:         "list indexing bails to nullable",
+			query:        "MATCH (u:User) RETURN u.tags[0]",
+			wantType:     "string",
+			wantRequired: false, // Out of bounds returns null
+		},
+		{
+			name:         "chained property access bails to nullable",
+			query:        "MATCH (u:User) RETURN u.id.length",
+			wantType:     "",    // Unknown type for chained access
+			wantRequired: false, // Chained access - not simple var.prop
 		},
 	}
 

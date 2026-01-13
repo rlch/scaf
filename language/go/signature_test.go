@@ -79,7 +79,7 @@ RETURN count(u) AS count
 					QueryName: "countUsers",
 					Params:    []FuncParam{},
 					Returns: []FuncReturn{
-						{Name: "count", Type: "int", IsSlice: false},
+						{Name: "count", Type: "*int", IsSlice: false}, // Conservative: complex expression bails to nullable
 					},
 				},
 			},
