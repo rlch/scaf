@@ -191,9 +191,12 @@ func (t *Transaction) Rollback(ctx context.Context) error {
 }
 
 // splitStatements splits a multi-statement query into individual statements.
-// Statements are split when we see a new "starter" keyword (MATCH, CREATE, MERGE, etc.)
-// at the beginning of a line, AND the previous accumulated statement looks complete
-// (contains RETURN, or is a write-only statement like CREATE/DELETE).
+// Statements are split when we see a new "starter" keyword (MATCH, MERGE, etc.)
+// at the beginning of a line, AND the previous accumulated statement looks complete.
+//
+// A statement is complete if it has a RETURN clause. Write-only statements (CREATE, DELETE, etc.)
+// are NOT considered complete on their own - they may be followed by more CREATE clauses
+// that are part of the same logical statement.
 func splitStatements(query string) []string {
 	lines := strings.Split(strings.TrimSpace(query), "\n")
 
@@ -201,11 +204,11 @@ func splitStatements(query string) []string {
 
 	var current strings.Builder
 
+	// These keywords can start a new statement. Split only happens if previous has RETURN.
 	starterKeywords := []string{"MATCH", "CREATE", "MERGE", "DETACH", "OPTIONAL", "CALL", "UNWIND", "FOREACH"}
-	writeKeywords := []string{"CREATE", "MERGE", "DELETE", "DETACH DELETE", "SET", "REMOVE"}
 
 	isStarter := func(s string) bool {
-		upper := strings.ToUpper(s)
+		upper := strings.ToUpper(strings.TrimSpace(s))
 		for _, kw := range starterKeywords {
 			if strings.HasPrefix(upper, kw) {
 				return true
@@ -217,18 +220,8 @@ func splitStatements(query string) []string {
 
 	isComplete := func(s string) bool {
 		upper := strings.ToUpper(s)
-		// Has RETURN clause
-		if strings.Contains(upper, "RETURN ") || strings.HasSuffix(upper, "RETURN") {
-			return true
-		}
-		// Is a write-only statement (CREATE, DELETE, etc. without needing RETURN)
-		for _, kw := range writeKeywords {
-			if strings.Contains(upper, kw) {
-				return true
-			}
-		}
-
-		return false
+		// Only complete if it has RETURN clause
+		return strings.Contains(upper, "RETURN ") || strings.HasSuffix(upper, "RETURN")
 	}
 
 	for _, line := range lines {
