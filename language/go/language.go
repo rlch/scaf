@@ -35,6 +35,9 @@ package golang
 
 import (
 	"errors"
+	"fmt"
+	"os"
+	"path/filepath"
 
 	"github.com/rlch/scaf"
 	"github.com/rlch/scaf/language"
@@ -122,16 +125,43 @@ func (g *GoLanguage) Name() string {
 	return scaf.LangGo
 }
 
+// InferPackageName determines the Go package name for a directory.
+func (g *GoLanguage) InferPackageName(dir string) (string, error) {
+	return InferPackageName(dir)
+}
+
 // Generate produces scaf.go and scaf_test.go from the suite.
 func (g *GoLanguage) Generate(ctx *language.GenerateContext) (map[string][]byte, error) {
-	// Wrap in Go-specific context with defaults
+	packageName := ctx.PackageName
+	if packageName == "" {
+		var err error
+		packageName, err = g.InferPackageName(ctx.OutputDir)
+		if err != nil {
+			packageName = SanitizePackageName(ctx.OutputDir)
+		}
+
+		// Warn if folder name was a Go keyword
+		if IsKeyword(filepath.Base(ctx.OutputDir)) {
+			fmt.Fprintf(os.Stderr, "warning: folder %q is a Go keyword, using %q as package name\n",
+				filepath.Base(ctx.OutputDir), packageName)
+		}
+	}
+
+	var binding Binding
+	if ctx.AdapterName != "" {
+		binding = GetBinding(ctx.AdapterName)
+		if binding == nil {
+			return nil, fmt.Errorf("unknown adapter: %s (available: %v)", ctx.AdapterName, RegisteredBindings())
+		}
+	}
+
 	goCtx := &Context{
 		GenerateContext: *ctx,
-		PackageName:     "main", // Default, should be overridden by caller
+		PackageName:     packageName,
+		Binding:         binding,
 	}
 
 	gen := &generator{ctx: goCtx}
-
 	return gen.Generate()
 }
 

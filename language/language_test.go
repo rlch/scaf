@@ -15,6 +15,10 @@ func (m *mockLanguage) Name() string {
 	return m.name
 }
 
+func (m *mockLanguage) InferPackageName(_ string) (string, error) {
+	return "mock", nil
+}
+
 func (m *mockLanguage) Generate(_ *GenerateContext) (map[string][]byte, error) {
 	return nil, nil
 }

@@ -106,9 +106,12 @@ func runTest(ctx context.Context, cmd *cli.Command) error {
 		return ErrNoScafFiles
 	}
 
-	// Load config
-	configDir := filepath.Dir(files[0])
-	loadedCfg, configErr := scaf.LoadConfig(configDir)
+	// Load config (walk up from cwd to find .scaf.yaml)
+	cwd, err := os.Getwd()
+	if err != nil {
+		return fmt.Errorf("failed to get working directory: %w", err)
+	}
+	loadedCfg, _, configErr := loadConfigWithDir(cwd)
 
 	// Determine database name (flag > config)
 	databaseName := cmd.String("database")
