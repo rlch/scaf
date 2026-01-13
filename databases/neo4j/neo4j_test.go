@@ -228,6 +228,70 @@ func TestDatabase_Transaction_Integration(t *testing.T) {
 	}
 }
 
+func TestSplitStatements(t *testing.T) {
+	tests := []struct {
+		name  string
+		query string
+		want  []string
+	}{
+		{
+			name: "splits on RETURN",
+			query: `MATCH (n) RETURN n
+MATCH (m) RETURN m`,
+			want: []string{
+				"MATCH (n) RETURN n",
+				"MATCH (m) RETURN m",
+			},
+		},
+		{
+			name: "chained CREATEs stay together",
+			query: `MATCH (a:User {id: 1}), (b:User {id: 2})
+CREATE (c:Comment {text: "hello"})
+CREATE (a)-[:WROTE]->(c)
+CREATE (b)-[:LIKES]->(c)`,
+			want: []string{
+				`MATCH (a:User {id: 1}), (b:User {id: 2})
+CREATE (c:Comment {text: "hello"})
+CREATE (a)-[:WROTE]->(c)
+CREATE (b)-[:LIKES]->(c)`,
+			},
+		},
+		{
+			name: "write-only with MATCH stays together",
+			query: `CREATE (:User {id: 1})
+CREATE (:User {id: 2})
+MATCH (a:User {id: 1}), (b:User {id: 2})
+CREATE (a)-[:KNOWS]->(b)`,
+			want: []string{
+				`CREATE (:User {id: 1})
+CREATE (:User {id: 2})
+MATCH (a:User {id: 1}), (b:User {id: 2})
+CREATE (a)-[:KNOWS]->(b)`,
+			},
+		},
+		{
+			name: "OPTIONAL MATCH stays with MATCH",
+			query: `MATCH (c:Comment)
+OPTIONAL MATCH (a:User)-[:WROTE]->(c)
+RETURN c, a`,
+			want: []string{
+				`MATCH (c:Comment)
+OPTIONAL MATCH (a:User)-[:WROTE]->(c)
+RETURN c, a`,
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := splitStatements(tt.query)
+			if diff := cmp.Diff(tt.want, got); diff != "" {
+				t.Errorf("splitStatements() mismatch (-want +got):\n%s", diff)
+			}
+		})
+	}
+}
+
 func setupIntegrationTest(t *testing.T) *Database {
 	t.Helper()
 
