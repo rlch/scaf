@@ -843,3 +843,60 @@ GetUser {
 	// Should use nil for null value
 	assert.Contains(t, contentStr, "Bio: nil", "should use nil for null")
 }
+
+func TestGenerateMockFileReturnsEmptySliceForAllNullOutputs(t *testing.T) {
+	t.Parallel()
+
+	input := `
+fn GetUser() ` + "`" + `
+MATCH (u:User {id: $userId})
+RETURN u.id AS id, u.name AS name
+` + "`" + `
+
+GetUser {
+	test "user not found" {
+		$userId: 999
+		id: null
+		name: null
+	}
+}
+`
+	suite, err := scaf.Parse([]byte(input))
+	require.NoError(t, err)
+
+	analyzer := scaf.GetAnalyzer("cypher")
+
+	schema := &analysis.TypeSchema{
+		Models: map[string]*analysis.Model{
+			"User": {
+				Name: "User",
+				Fields: []*analysis.Field{
+					{Name: "id", Type: analysis.TypeInt, Required: true},
+					{Name: "name", Type: analysis.TypeString, Required: true},
+				},
+			},
+		},
+	}
+
+	ctx := &Context{
+		GenerateContext: language.GenerateContext{
+			Suite:         suite,
+			QueryAnalyzer: analyzer,
+			Schema:        schema,
+		},
+		PackageName: "testpkg",
+	}
+
+	gen := &generator{ctx: ctx}
+	signatures, err := gen.extractSignatures()
+	require.NoError(t, err)
+
+	content, err := gen.generateMockFile(signatures)
+	require.NoError(t, err)
+	require.NotNil(t, content)
+
+	contentStr := string(content)
+
+	assert.Contains(t, contentStr, "return []*getUserResult{}", "should return empty slice for all-null outputs")
+	assert.NotContains(t, contentStr, "return []*getUserResult{{", "should not return a single result with zero values")
+}

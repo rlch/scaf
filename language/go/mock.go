@@ -389,6 +389,15 @@ func (m *mockGenerator) writeReturn(tc *TestCase, sig *FuncSignature) {
 
 // writeStructReturn writes a return statement that returns a result struct pointer or slice.
 func (m *mockGenerator) writeStructReturn(tc *TestCase, sig *FuncSignature, returnsError bool) {
+	if sig.ReturnsSlice && m.allOutputsNull(tc, sig) {
+		if returnsError {
+			fmt.Fprintf(m.buf, "\t\treturn []*%s{}, nil\n", sig.ResultStruct)
+		} else {
+			fmt.Fprintf(m.buf, "\t\treturn []*%s{}\n", sig.ResultStruct)
+		}
+		return
+	}
+
 	if sig.ReturnsSlice {
 		// Return slice with single struct
 		fmt.Fprintf(m.buf, "\t\treturn []*%s{{\n", sig.ResultStruct)
@@ -421,29 +430,7 @@ func (m *mockGenerator) writeStructReturn(tc *TestCase, sig *FuncSignature, retu
 
 // findOutputValue finds the output value for a return field from test case outputs.
 func (m *mockGenerator) findOutputValue(tc *TestCase, ret FuncReturn) string {
-	var val any
-	var found bool
-
-	// Try exact match first
-	if v, ok := tc.Outputs[ret.Name]; ok {
-		val = v
-		found = true
-	}
-
-	// Try to find by field name with any prefix (e.g., "u.name" -> "name")
-	if !found {
-		for key, v := range tc.Outputs {
-			parts := strings.Split(key, ".")
-			fieldName := parts[len(parts)-1]
-
-			if fieldName == ret.Name {
-				val = v
-				found = true
-				break
-			}
-		}
-	}
-
+	val, found := m.outputValueForReturn(tc, ret)
 	if !found {
 		// Return zero value
 		return zeroValue(ret.Type)
@@ -455,6 +442,40 @@ func (m *mockGenerator) findOutputValue(tc *TestCase, ret FuncReturn) string {
 	}
 
 	return goLiteral(val)
+}
+
+func (m *mockGenerator) outputValueForReturn(tc *TestCase, ret FuncReturn) (any, bool) {
+	// Try exact match first
+	if v, ok := tc.Outputs[ret.Name]; ok {
+		return v, true
+	}
+
+	// Try to find by field name with any prefix (e.g., "u.name" -> "name")
+	for key, v := range tc.Outputs {
+		parts := strings.Split(key, ".")
+		fieldName := parts[len(parts)-1]
+
+		if fieldName == ret.Name {
+			return v, true
+		}
+	}
+
+	return nil, false
+}
+
+func (m *mockGenerator) allOutputsNull(tc *TestCase, sig *FuncSignature) bool {
+	if len(sig.Returns) == 0 {
+		return false
+	}
+
+	for _, ret := range sig.Returns {
+		val, found := m.outputValueForReturn(tc, ret)
+		if !found || val != nil {
+			return false
+		}
+	}
+
+	return true
 }
 
 // toImplVarName converts a function name to its implementation variable name.
